@@ -1,0 +1,11 @@
+name: Build ouestcharlie-imageproc
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    uses: ./.github/workflows/_build.yml

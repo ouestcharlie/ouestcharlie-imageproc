@@ -1,0 +1,29 @@
+name: Publish ouestcharlie-imageproc
+
+on:
+  push:
+    tags: ["v[0-9]*.[0-9]*.[0-9]*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    uses: ./.github/workflows/_build.yml
+
+  publish:
+    name: Publish to PyPI
+    needs: build
+    runs-on: ubuntu-22.04
+    environment: pypi
+    permissions:
+      id-token: write  # trusted publishing
+      actions: read    # needed to download artifacts from another job
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          verbose: true
