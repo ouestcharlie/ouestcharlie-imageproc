@@ -23,7 +23,7 @@ _log = logging.getLogger(__name__)
 # Major version of the Python↔image-proc JSON protocol.
 # Must match the major component of the Cargo.toml version in image-proc/.
 # Bump both together whenever the protocol changes in a breaking way.
-IMAGE_PROC_PROTOCOL_MAJOR_VERSION = 1
+IMAGE_PROC_PROTOCOL_MAJOR_VERSION = 2
 
 
 def _find_image_proc_binary() -> str:

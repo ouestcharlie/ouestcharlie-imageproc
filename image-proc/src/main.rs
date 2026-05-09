@@ -102,7 +102,6 @@ struct JpegPreviewInput {
 
 #[derive(Serialize)]
 struct AvifGridOutput {
-    cols: u32,
     rows: u32,
     #[serde(rename = "tileSize")]
     tile_size: u32,
@@ -243,7 +242,7 @@ fn run_avif_grid(input: AvifGridInput) -> Result<AvifGridOutput, Box<dyn std::er
     std::fs::write(&input.output, &encoded.avif_file)?;
 
     let photo_order: Vec<String> = input.photos.iter().map(|p| p.content_hash.clone()).collect();
-    Ok(AvifGridOutput { cols, rows, tile_size, photo_order })
+    Ok(AvifGridOutput { rows, tile_size, photo_order })
 }
 
 // ---------------------------------------------------------------------------
@@ -372,8 +371,10 @@ fn decode_heic(path: &Path) -> Result<DynamicImage, String> {
 // Grid geometry
 // ---------------------------------------------------------------------------
 
+const GRID_COLS: u32 = 8;
+
 fn grid_dims(n: usize) -> (u32, u32) {
-    let cols = (n as f64).sqrt().ceil() as u32;
+    let cols = (n as u32).min(GRID_COLS);
     let rows = n.div_ceil(cols as usize) as u32;
     (cols, rows)
 }
@@ -398,10 +399,10 @@ mod tests {
 
     #[test] fn grid_dims_one()  { assert_eq!(grid_dims(1),  (1, 1)); }
     #[test] fn grid_dims_two()  { assert_eq!(grid_dims(2),  (2, 1)); }
-    #[test] fn grid_dims_four() { assert_eq!(grid_dims(4),  (2, 2)); }
-    #[test] fn grid_dims_five() { assert_eq!(grid_dims(5),  (3, 2)); }
-    #[test] fn grid_dims_nine() { assert_eq!(grid_dims(9),  (3, 3)); }
-    #[test] fn grid_dims_ten()  { assert_eq!(grid_dims(10), (4, 3)); }
+    #[test] fn grid_dims_four() { assert_eq!(grid_dims(4),  (4, 1)); }
+    #[test] fn grid_dims_five() { assert_eq!(grid_dims(5),  (5, 1)); }
+    #[test] fn grid_dims_nine() { assert_eq!(grid_dims(9),  (8, 2)); }
+    #[test] fn grid_dims_ten()  { assert_eq!(grid_dims(10), (8, 2)); }
 
     #[test] fn orientation_none_is_noop()   { assert_eq!(apply_orientation(landscape(), None).dimensions(),    (400, 200)); }
     #[test] fn orientation_1_is_noop()      { assert_eq!(apply_orientation(landscape(), Some(1)).dimensions(), (400, 200)); }
@@ -484,7 +485,6 @@ mod tests {
             quality: 55,
             output: output.clone(),
         }).unwrap();
-        assert_eq!(result.cols, 1);
         assert_eq!(result.rows, 1);
         assert_eq!(result.tile_size, 64);
         assert_eq!(result.photo_order, vec!["Aaaa3QzA2nBcR8xYvLm1Pw"]);
@@ -493,7 +493,7 @@ mod tests {
     }
 
     #[test]
-    fn avif_grid_four_photos_two_by_two() {
+    fn avif_grid_four_photos_four_by_one() {
         let output = std::env::temp_dir().join("avif_grid_4.avif");
         let photos = vec![
             make_jpeg("ag4_a.jpg", 200, 200, Rgb([255,   0,   0]), "Artc3QzA2nBcR8xYvLm1Pw"),
@@ -509,15 +509,14 @@ mod tests {
             quality: 55,
             output: output.clone(),
         }).unwrap();
-        assert_eq!(result.cols, 2);
-        assert_eq!(result.rows, 2);
+        assert_eq!(result.rows, 1);
         assert_eq!(result.photo_order, hashes);
         assert!(output.exists());
     }
 
     #[test]
-    fn avif_grid_five_photos_pads_last_row() {
-        // 5 photos → cols=3, rows=2 → 6 cells (1 padding tile)
+    fn avif_grid_five_photos_five_by_one() {
+        // 5 photos → cols=5, rows=1
         let output = std::env::temp_dir().join("avif_grid_5.avif");
         let photos: Vec<PhotoInput> = (0..5).map(|i| {
             make_jpeg(&format!("ag5_{i}.jpg"), 100, 100, Rgb([i * 50, 100, 200]), &format!("Photo{i:0>17}"))
@@ -529,8 +528,7 @@ mod tests {
             quality: 55,
             output: output.clone(),
         }).unwrap();
-        assert_eq!(result.cols, 3);
-        assert_eq!(result.rows, 2);
+        assert_eq!(result.rows, 1);
         assert_eq!(result.photo_order.len(), 5);
         assert!(output.exists());
     }
