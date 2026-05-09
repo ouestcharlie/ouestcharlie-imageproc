@@ -61,7 +61,7 @@ Triggered by presence of `"photos"` array. Used by `thumbnail_builder.generate_p
 **Request:**
 ```json
 {
-  "protocol_version": 1,
+  "protocol_version": 2,
   "photos": [
     { "path": "/tmp/staged.jpg", "ext": ".jpg", "orientation": 6, "content_hash": "Kf3QzA2_nBcR8xYvLm1P9w" }
   ],
@@ -77,7 +77,7 @@ Triggered by presence of `"photos"` array. Used by `thumbnail_builder.generate_p
 
 **Response:**
 ```json
-{ "cols": 8, "rows": 8, "tileSize": 256, "photoOrder": ["Kf3QzA2_nBcR8xYvLm1P9w", ...] }
+{ "rows": 8, "tileSize": 256, "photoOrder": ["Kf3QzA2_nBcR8xYvLm1P9w", ...] }
 ```
 
 **Rust pipeline (per chunk):**
@@ -86,7 +86,7 @@ rayon::par_iter  — decode → apply EXIF orientation → resize → fit to squ
 sequential       — YUV420 conversion → AVIF grid encoding (libavif, not thread-safe)
 ```
 
-Grid layout: `cols = ceil(sqrt(n))`, `rows = ceil(n / cols)` — square-ish, max 8×8 for 64 photos. Last row padded with black tiles.
+Grid layout: `cols = min(8, n)`, `rows = ceil(n / cols)` — always 8 columns (or fewer if n < 8), max 8×8 for 64 photos. Last row padded with black tiles. `cols` is not included in the response — callers compute it as `min(8, len(photoOrder))`.
 
 ## `jpeg_preview` Command — On-Demand Preview JPEG
 
@@ -95,7 +95,7 @@ Triggered by presence of `"photo"` object. Used by `preview_builder.generate_pre
 **Request:**
 ```json
 {
-  "protocol_version": 1,
+  "protocol_version": 2,
   "photo": { "path": "/tmp/staged.cr2", "ext": ".cr2", "orientation": 1, "content_hash": "Kf3QzA2_nBcR8xYvLm1P9w" },
   "max_long_edge": 1440,
   "quality": 85,
