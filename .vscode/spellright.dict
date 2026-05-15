@@ -15,8 +15,6 @@ MCP
 FastMCP
 stdio
 AgentBase
-ManifestStore
-XmpStore
 pyproject
 hatchling
 asyncio
