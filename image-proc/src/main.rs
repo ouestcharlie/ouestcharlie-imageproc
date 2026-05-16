@@ -47,8 +47,8 @@
 //!
 //! # Grid layout (avif_grid)
 //!
-//! Photos are arranged in a square-ish grid: `cols = ceil(sqrt(n))`,
-//! `rows = ceil(n / cols)`.  The last row is padded with blank black tiles.
+//! Photos are always arranged in 8-column rows: `cols = 8`,
+//! `rows = ceil(n / 8)`.  The last row is padded with blank black tiles.
 //!
 //! The caller is responsible for ordering photos by content_hash before
 //! passing them here, to ensure stable tile indices.
@@ -374,8 +374,8 @@ fn decode_heic(path: &Path) -> Result<DynamicImage, String> {
 const GRID_COLS: u32 = 8;
 
 fn grid_dims(n: usize) -> (u32, u32) {
-    let cols = (n as u32).min(GRID_COLS);
-    let rows = n.div_ceil(cols as usize) as u32;
+    let cols = GRID_COLS;
+    let rows = n.div_ceil(GRID_COLS as usize) as u32;
     (cols, rows)
 }
 
@@ -397,10 +397,10 @@ mod tests {
     fn portrait()  -> DynamicImage { solid(200, 400, Rgb([50, 100, 200])) }
     fn square()    -> DynamicImage { solid(300, 300, Rgb([128, 128, 128])) }
 
-    #[test] fn grid_dims_one()  { assert_eq!(grid_dims(1),  (1, 1)); }
-    #[test] fn grid_dims_two()  { assert_eq!(grid_dims(2),  (2, 1)); }
-    #[test] fn grid_dims_four() { assert_eq!(grid_dims(4),  (4, 1)); }
-    #[test] fn grid_dims_five() { assert_eq!(grid_dims(5),  (5, 1)); }
+    #[test] fn grid_dims_one()  { assert_eq!(grid_dims(1),  (8, 1)); }
+    #[test] fn grid_dims_two()  { assert_eq!(grid_dims(2),  (8, 1)); }
+    #[test] fn grid_dims_four() { assert_eq!(grid_dims(4),  (8, 1)); }
+    #[test] fn grid_dims_five() { assert_eq!(grid_dims(5),  (8, 1)); }
     #[test] fn grid_dims_nine() { assert_eq!(grid_dims(9),  (8, 2)); }
     #[test] fn grid_dims_ten()  { assert_eq!(grid_dims(10), (8, 2)); }
 
@@ -516,7 +516,7 @@ mod tests {
 
     #[test]
     fn avif_grid_five_photos_five_by_one() {
-        // 5 photos → cols=5, rows=1
+        // 5 photos → cols=8, rows=1 (3 padding tiles)
         let output = std::env::temp_dir().join("avif_grid_5.avif");
         let photos: Vec<PhotoInput> = (0..5).map(|i| {
             make_jpeg(&format!("ag5_{i}.jpg"), 100, 100, Rgb([i * 50, 100, 200]), &format!("Photo{i:0>17}"))
