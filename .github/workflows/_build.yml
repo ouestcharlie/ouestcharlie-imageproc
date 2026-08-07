@@ -23,16 +23,31 @@ jobs:
 
       - name: Install system deps (macOS)
         if: runner.os == 'macOS'
-        run: brew install nasm inih
+        run: brew install nasm inih libheif
 
-      - name: Install nasm (Linux)
+      - name: Install nasm and libheif (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y nasm
+        run: sudo apt-get update && sudo apt-get install -y nasm libheif-dev
 
       - name: Install nasm (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: choco install nasm -y --no-progress
+
+      # NOTE: this step is the highest-risk part of OEC-30a (see the issue for
+      # context) — vcpkg-built libheif pulls in libde265/x265/aom and may be
+      # slow or need extra flags. Verify against a live CI run and adjust
+      # (e.g. cache the vcpkg tree via actions/cache, keyed on the libheif
+      # port version) before relying on this.
+      - name: Bootstrap vcpkg and install libheif (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          git clone https://github.com/microsoft/vcpkg C:\vcpkg
+          C:\vcpkg\bootstrap-vcpkg.bat
+          C:\vcpkg\vcpkg.exe install libheif:x64-windows
+          echo "VCPKG_ROOT=C:\vcpkg" >> $env:GITHUB_ENV
+          echo "VCPKG_INSTALLATION_ROOT=C:\vcpkg" >> $env:GITHUB_ENV
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -45,16 +60,22 @@ jobs:
           python-version: "3.13"
 
       - name: Install build tools
-        run: pip install hatch auditwheel
+        run: pip install hatch auditwheel delocate
 
       - name: Rust unit tests (image-proc)
         working-directory: image-proc
-        run: cargo test --release
+        run: cargo test --release --features raw,heic
 
       - name: Build wheel
         run: hatch build --target wheel
         env:
           IMAGE_PROC_FEATURE_RAW: "1"
+          IMAGE_PROC_FEATURE_HEIC: "1"
+
+      - name: Bundle libheif into wheel (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          delocate-wheel -w dist/ -v dist/*.whl
 
       - name: Install wheel
         working-directory: dist
@@ -67,7 +88,7 @@ jobs:
       - name: Run integration tests
         run: python -m pytest tests_integration/ -v
 
-      - name: Repair wheel (Linux — retag linux_x86_64 → manylinux)
+      - name: Repair wheel (Linux — retag linux_x86_64 → manylinux, bundle libheif)
         if: runner.os == 'Linux'
         run: |
           auditwheel repair dist/*.whl -w dist/

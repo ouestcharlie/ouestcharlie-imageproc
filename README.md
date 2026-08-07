@@ -15,21 +15,22 @@ Handles all pixel-level operations: decoding, EXIF orientation, resize, fit, and
 |--------|-------|
 | JPEG, PNG, WebP, TIFF | Default, pure Rust, all platforms |
 | RAW (CR2, NEF, ARW, DNG, RAF, ORF, RW2, PEF) | Enable with `IMAGE_PROC_FEATURE_RAW=1` |
-| HEIC/HEIF | Enable with `IMAGE_PROC_FEATURE_HEIC=1` (requires system `libheif`) |
+| HEIC/HEIF | Enable with `IMAGE_PROC_FEATURE_HEIC=1` — bundled into published wheels by default; requires `libheif` at build time only, none at runtime (its shared library is vendored into the wheel) |
 
 ## Building
 
-Requires Rust stable and `nasm`:
+Requires Rust stable, `nasm`, and (for HEIC) `libheif`:
 
 ```bash
 # macOS
-brew install nasm inih
+brew install nasm inih libheif
 
 # Linux
-sudo apt-get install nasm
+sudo apt-get install nasm libheif-dev
 
 # Windows
 choco install nasm
+# libheif via vcpkg — see .github/workflows/_build.yml for the bootstrap steps
 ```
 
 ```bash
@@ -37,8 +38,12 @@ choco install nasm
 pip install -e . --no-build-isolation
 
 # Build release wheel
-IMAGE_PROC_FEATURE_RAW=1 hatch build --target wheel
+IMAGE_PROC_FEATURE_RAW=1 IMAGE_PROC_FEATURE_HEIC=1 hatch build --target wheel
 ```
+
+Published wheels set both `IMAGE_PROC_FEATURE_RAW` and `IMAGE_PROC_FEATURE_HEIC` via
+CI — a bare `pip install -e .` or `hatch build` without the env vars excludes both,
+same as `cargo build` without `--features`.
 
 ## Running tests
 
