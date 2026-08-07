@@ -6,6 +6,10 @@ on:
 permissions:
   contents: read
 
+env:
+  # libheif-rs 1.x requires libheif >= 1.18; built from source on Linux.
+  LIBHEIF_VERSION: "1.19.7"
+
 jobs:
   build-wheel:
     name: Build wheel on ${{ matrix.os }}
@@ -25,9 +29,43 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install nasm inih libheif
 
-      - name: Install nasm and libheif (Linux)
+      # Ubuntu 22.04's apt libheif is 1.12, but libheif-rs 1.x requires
+      # libheif >= 1.18 (pkg-config reports it as "not found" on a version
+      # mismatch). Build a recent libheif from source. Codec dev libs come
+      # from apt; the built tree is cached (keyed on LIBHEIF_VERSION) so the
+      # compile only runs on a cache miss.
+      - name: Install nasm and codec deps (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y nasm libheif-dev
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nasm cmake pkg-config \
+            libde265-dev libx265-dev libaom-dev
+
+      - name: Cache libheif build (Linux)
+        if: runner.os == 'Linux'
+        id: cache-libheif
+        uses: actions/cache@v4
+        with:
+          path: /usr/local
+          key: libheif-${{ env.LIBHEIF_VERSION }}-ubuntu-22.04
+
+      - name: Build and install libheif from source (Linux)
+        if: runner.os == 'Linux' && steps.cache-libheif.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch "v${LIBHEIF_VERSION}" \
+            https://github.com/strukturag/libheif.git /tmp/libheif
+          cmake -S /tmp/libheif -B /tmp/libheif/build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=/usr/local \
+            -DWITH_EXAMPLES=OFF
+          cmake --build /tmp/libheif/build -j"$(nproc)"
+          sudo cmake --install /tmp/libheif/build
+
+      - name: Refresh linker cache and expose pkg-config (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo ldconfig
+          echo "PKG_CONFIG_PATH=/usr/local/lib/pkgconfig:/usr/local/lib/x86_64-linux-gnu/pkgconfig:$PKG_CONFIG_PATH" >> "$GITHUB_ENV"
 
       - name: Install nasm (Windows)
         if: runner.os == 'Windows'
