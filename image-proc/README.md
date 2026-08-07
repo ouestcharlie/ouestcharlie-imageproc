@@ -24,8 +24,15 @@ The binary is at `target/release/image-proc`.
 
 ```bash
 cargo build --release --features raw   # RAW format support (rawler, pure Rust)
-cargo build --release --features heic  # HEIC/HEIF support (requires libheif)
+cargo build --release --features heic  # HEIC/HEIF support (requires libheif at build time)
 ```
+
+Both are Cargo-level opt-in — a bare `cargo build --release` excludes both, same as
+`pip install -e .`/`hatch build` without the corresponding `IMAGE_PROC_FEATURE_*` env
+var. **Published wheels enable both by default**: CI sets `IMAGE_PROC_FEATURE_RAW=1`
+and `IMAGE_PROC_FEATURE_HEIC=1` when building for PyPI, and bundles `libheif`'s shared
+library into the wheel so end users need nothing extra at runtime — `libheif` is a
+build-time-only dependency, same as `nasm`.
 
 ## Usage
 

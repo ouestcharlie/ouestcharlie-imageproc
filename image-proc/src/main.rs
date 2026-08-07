@@ -358,8 +358,36 @@ fn decode_raw(path: &Path) -> Result<DynamicImage, String> {
 }
 
 #[cfg(feature = "heic")]
-fn decode_heic(_path: &Path) -> Result<DynamicImage, String> {
-    Err("HEIC decode not yet implemented (--features heic stub)".into())
+fn decode_heic(path: &Path) -> Result<DynamicImage, String> {
+    use libheif_rs::{ColorSpace, HeifContext, LibHeif, RgbChroma};
+
+    let path_str = path.to_str().ok_or_else(|| format!("non-UTF8 path: {}", path.display()))?;
+    let ctx = HeifContext::read_from_file(path_str)
+        .map_err(|e| format!("failed to open {}: {e}", path.display()))?;
+    let handle = ctx
+        .primary_image_handle()
+        .map_err(|e| format!("no primary image in {}: {e}", path.display()))?;
+    let lib_heif = LibHeif::new();
+    let image = lib_heif
+        .decode(&handle, ColorSpace::Rgb(RgbChroma::Rgb), None)
+        .map_err(|e| format!("failed to decode {}: {e}", path.display()))?;
+    let plane = image
+        .planes()
+        .interleaved
+        .ok_or_else(|| format!("no interleaved RGB plane in {}", path.display()))?;
+
+    let width = plane.width;
+    let height = plane.height;
+    let row_bytes = width as usize * 3;
+    let mut buf = Vec::with_capacity(row_bytes * height as usize);
+    for row in 0..height as usize {
+        let start = row * plane.stride;
+        buf.extend_from_slice(&plane.data[start..start + row_bytes]);
+    }
+
+    let rgb_image = RgbImage::from_raw(width, height, buf)
+        .ok_or_else(|| format!("pixel buffer size mismatch decoding {}", path.display()))?;
+    Ok(DynamicImage::ImageRgb8(rgb_image))
 }
 
 #[cfg(not(feature = "heic"))]
@@ -616,5 +644,19 @@ mod tests {
         let line = r#"{"protocol_version": 1, "unknown_command": true}"#;
         let err = error_msg(process_line(line, 1));
         assert!(err.contains("invalid request"), "got: {err}");
+    }
+
+    #[cfg(feature = "heic")]
+    #[test]
+    fn decode_heic_returns_correct_dimensions() {
+        // 64x48 gradient, generated via pillow-heif (see tests/sample-images/003.heic).
+        let bytes = include_bytes!("../../tests/sample-images/003.heic");
+        let tmp = std::env::temp_dir().join("image-proc-test-decode_heic.heic");
+        std::fs::write(&tmp, bytes).unwrap();
+
+        let img = decode_heic(&tmp).unwrap();
+
+        std::fs::remove_file(&tmp).ok();
+        assert_eq!(img.dimensions(), (64, 48));
     }
 }

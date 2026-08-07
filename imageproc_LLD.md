@@ -114,17 +114,31 @@ Triggered by presence of `"photo"` object. Used by `preview_builder.generate_pre
 |--------|--------------|-----------|:-----:|:-----:|:-------:|
 | JPEG, PNG, WebP, TIFF | *(default)* | None (pure Rust) | ✅ | ✅ | ✅ |
 | RAW (CR2, NEF, ARW, DNG, RAF, ORF, RW2, PEF) | `raw` | None (pure Rust) | ✅ | ✅ | ✅ |
-| HEIC/HEIF | `heic` | `libheif ≥ 1.17` | ✅ | ✅ | ⚠️ |
+| HEIC/HEIF | `heic` | `libheif ≥ 1.18` — build-time only, bundled into the wheel at runtime | ✅ | ✅ | ⚠️ (vcpkg build, see below) |
 
-RAW and HEIC are compile-time features; the binary returns a clear error if a format is not compiled in. Enable them at build time:
+RAW and HEIC are compile-time features; the binary returns a clear error if a format
+is not compiled in. Both are Cargo-level opt-in (`cargo build --release` alone
+excludes both), but **published wheels enable both by default** — CI sets both env
+vars and bundles `libheif`'s shared library into the wheel, so end users need no
+system `libheif` install, unlike a from-source build:
 
 ```bash
 IMAGE_PROC_FEATURE_RAW=1 IMAGE_PROC_FEATURE_HEIC=1 hatch build
 ```
 
+⚠️ **Windows HEIC caveat**: `libheif` isn't available via `choco`, so CI bootstraps
+`libheif` via `vcpkg` (see `.github/workflows/_build.yml`) — this pulls in
+`libde265`/`x265`/`aom` as transitive deps and is slower/less proven than the
+Homebrew/apt paths. If it proves too unreliable in practice, the fallback is dropping
+`IMAGE_PROC_FEATURE_HEIC` from the Windows CI leg only, as a follow-up.
+
 ## Build
 
-The `hatch_build.py` hook compiles the Rust binary and bundles it into the wheel:
+The `hatch_build.py` hook compiles the Rust binary and bundles it into the wheel. On
+Windows, when the `heic` feature is built, it also copies `libheif`'s runtime DLLs
+(located via `VCPKG_ROOT`/`VCPKG_INSTALLATION_ROOT`) next to `image-proc.exe`, since
+Windows has no `auditwheel`/`delocate` equivalent to vendor them into the wheel
+automatically:
 
 ```bash
 # Development (editable install — creates symlink, picks up subsequent cargo builds)
@@ -135,9 +149,9 @@ hatch build --target wheel
 ```
 
 System dependencies required at build time:
-- **macOS:** `brew install nasm inih`
-- **Linux:** `apt-get install nasm`
-- **Windows:** `choco install nasm`
+- **macOS:** `brew install nasm inih libheif`
+- **Linux:** `apt-get install nasm libheif-dev`
+- **Windows:** `choco install nasm`; `libheif` via `vcpkg` (see CI workflow)
 
 ## Version Bumping
 

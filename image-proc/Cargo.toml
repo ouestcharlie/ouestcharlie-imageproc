@@ -9,7 +9,8 @@ name = "image-proc"
 path = "src/main.rs"
 
 [build-dependencies]
-# No system dependencies — ravif encodes AVIF in pure Rust.
+# No build-time crate dependencies. build.rs only emits a link directive
+# (advapi32) for the Windows + heic static-link case — see build.rs.
 
 [features]
 # RAW format support (CR2, NEF, ARW, DNG, RAF, ORF, RW2, PEF) via rawler (pure Rust).
