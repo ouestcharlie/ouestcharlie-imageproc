@@ -38,7 +38,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y nasm cmake pkg-config \
+          sudo apt-get install -y nasm cmake pkg-config patchelf \
             libde265-dev libx265-dev libaom-dev
 
       - name: Cache libheif build (Linux)
@@ -134,6 +134,22 @@ jobs:
         run: |
           auditwheel repair dist/*.whl -w dist/
           rm dist/*-linux_x86_64.whl
+
+      # image-proc is a standalone binary, so auditwheel leaves it alone — the
+      # hatch build hook bundles libheif beside it and sets RUNPATH=$ORIGIN.
+      # This runner has /usr/local libheif, which would mask a broken bundle,
+      # so hide it and confirm the binary still resolves heif_init.
+      - name: Verify image-proc is self-contained (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          BIN="$(python -c 'import ouestcharlie_imageproc, pathlib; print(pathlib.Path(ouestcharlie_imageproc.__file__).parent / "bin" / "image-proc")')"
+          echo "RUNPATH: $(patchelf --print-rpath "$BIN")"
+          ls -1 "$(dirname "$BIN")" | grep -q '^libheif' || { echo "libheif not bundled next to image-proc"; exit 1; }
+          sudo mv /usr/local/lib /usr/local/lib.hidden
+          sudo ldconfig || true
+          "$BIN" --version
+          sudo mv /usr/local/lib.hidden /usr/local/lib
+          sudo ldconfig || true
 
       - uses: actions/upload-artifact@v6
         with:
