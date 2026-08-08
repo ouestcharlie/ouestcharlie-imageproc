@@ -92,9 +92,14 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@v2.9.2
         with:
           workspaces: image-proc
+          # Cache only the cargo registry/git (dependency downloads), not the
+          # compiled target/. For a --release build the target tree is large and
+          # zstd save/restore dominates on Linux, often outweighing the compile
+          # it saves; the registry cache keeps the download savings without it.
+          cache-targets: false
 
       - uses: actions/setup-python@v6
         with:
