@@ -41,6 +41,8 @@ class CustomBuildHook(BuildHookInterface):
             self._copy_windows_heic_dlls(bin_dir)
 
         if self.target_name == "editable" and sys.platform != "win32":
+            # (bundling deferred — editable installs use the developer's
+            #  system libheif, so no bundling is needed below)
             # Editable install: create a symlink so that subsequent
             # `cargo build --release` runs are picked up immediately
             # without reinstalling the wheel.
@@ -51,10 +53,127 @@ class CustomBuildHook(BuildHookInterface):
             shutil.copy2(src, dst)
             if sys.platform != "win32":
                 dst.chmod(dst.stat().st_mode | 0o111)
+            if sys.platform.startswith("linux") and "heic" in features:
+                self._bundle_linux_libs(dst, bin_dir)
+            if sys.platform == "darwin" and "heic" in features:
+                self._bundle_macos_libs(dst, bin_dir)
 
         # Mark the wheel as platform-specific (not pure Python)
         build_data["pure_python"] = False
         build_data["infer_tag"] = True
+
+    def _bundle_linux_libs(self, binary: Path, bin_dir: Path) -> None:
+        """Make the Linux image-proc binary self-contained.
+
+        image-proc is a standalone executable, not a Python extension module,
+        so `auditwheel repair` skips it — it only relinks .so extensions. Left
+        alone, the wheel ships no libheif and the binary resolves libheif.so.1
+        from the consumer's system. On distros whose stock libheif predates
+        `heif_init` (e.g. Ubuntu 22.04's 1.12) this fails at runtime with
+        `undefined symbol: heif_init`.
+
+        Bundle the binary's non-system shared-library dependencies next to it
+        and point its RUNPATH at $ORIGIN, mirroring the Windows DLL bundling.
+        """
+        if not shutil.which("patchelf"):
+            print("warning: patchelf not found — cannot bundle libheif into the Linux wheel")
+            return
+
+        try:
+            ldd = subprocess.run(
+                ["ldd", str(binary)], capture_output=True, text=True, check=True
+            ).stdout
+        except subprocess.CalledProcessError as exc:
+            print(f"warning: ldd failed on {binary}: {exc}")
+            return
+
+        # Bundle libheif and its codec deps; leave glibc/system libs to the host.
+        # ldd output is transitive, so codec libs pulled in only by libheif
+        # appear here too.
+        bundle_prefixes = ("libheif", "libde265", "libx265", "libaom", "libdav1d")
+        bundled: list[Path] = []
+        for line in ldd.splitlines():
+            if "=>" not in line:
+                continue
+            name = line.split("=>")[0].strip()
+            resolved = line.split("=>")[1].strip().split(" (")[0].strip()
+            if not resolved or not Path(resolved).exists():
+                continue
+            if not name.startswith(bundle_prefixes):
+                continue
+            dep = Path(resolved)
+            copied = bin_dir / dep.name
+            shutil.copy2(dep, copied)
+            bundled.append(copied)
+
+        # Point the binary and every bundled lib at $ORIGIN. DT_RUNPATH is not
+        # transitive, so each bundled .so needs its own RUNPATH to resolve the
+        # sibling codec libs it depends on.
+        for target in (binary, *bundled):
+            subprocess.run(["patchelf", "--set-rpath", "$ORIGIN", str(target)], check=True)
+
+    def _bundle_macos_libs(self, binary: Path, bin_dir: Path) -> None:
+        """Make the macOS image-proc binary self-contained.
+
+        Like auditwheel on Linux, delocate only relinks Python extension
+        modules — it leaves the standalone image-proc binary referencing its
+        libheif by absolute path (e.g. /opt/homebrew/opt/libheif/lib/...). That
+        path only exists on a machine with that exact Homebrew install, so the
+        wheel fails with `dyld: Library not loaded` elsewhere.
+
+        Copy the binary's non-system dylib dependencies (libheif and its codec
+        libs, transitively) next to it, rewrite every install name to
+        @loader_path/<name>, and re-sign — arm64 requires a valid signature and
+        install_name_tool invalidates the ad-hoc one cargo produced.
+        """
+
+        def deps(path: Path) -> list[Path]:
+            """Absolute, non-system dylib deps of a Mach-O file (excluding self)."""
+            out = subprocess.run(
+                ["otool", "-L", str(path)], capture_output=True, text=True, check=True
+            ).stdout
+            result = []
+            for line in out.splitlines()[1:]:  # first line is the file's own path
+                dep = line.strip().split(" (", 1)[0].strip()
+                if not dep or dep.startswith(("/usr/lib/", "/System/", "@")):
+                    continue
+                if Path(dep).name == path.name:  # a dylib's own LC_ID_DYLIB line
+                    continue
+                if Path(dep).exists():
+                    result.append(Path(dep))
+            return result
+
+        # Recursively collect and copy dependencies. Keyed by original absolute
+        # path (the string that appears in load commands), so rewriting can
+        # target the exact -change source below.
+        copied: dict[str, Path] = {}
+        queue = [binary]
+        while queue:
+            for dep in deps(queue.pop()):
+                if str(dep) in copied:
+                    continue
+                dst = bin_dir / dep.name
+                shutil.copy2(dep, dst)
+                dst.chmod(dst.stat().st_mode | 0o200)  # Homebrew dylibs are read-only
+                copied[str(dep)] = dst
+                queue.append(dst)
+
+        # Rewrite install names on the binary and every bundled dylib, then
+        # re-sign. DT_RUNPATH has no macOS analogue that spans transitive deps,
+        # so each file points at its siblings via @loader_path directly.
+        for target in (binary, *copied.values()):
+            if target is not binary:
+                subprocess.run(
+                    ["install_name_tool", "-id", f"@loader_path/{target.name}", str(target)],
+                    check=True,
+                )
+            for original, dst in copied.items():
+                subprocess.run(
+                    ["install_name_tool", "-change", original, f"@loader_path/{dst.name}",
+                     str(target)],
+                    check=True,
+                )
+            subprocess.run(["codesign", "-f", "-s", "-", str(target)], check=True)
 
     def _copy_windows_heic_dlls(self, bin_dir: Path) -> None:
         """Copy libheif's runtime DLLs next to image-proc.exe.
