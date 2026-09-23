@@ -38,7 +38,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y nasm cmake pkg-config patchelf \
+          sudo apt-get install -y nasm cmake pkg-config \
             libde265-dev libx265-dev libaom-dev
 
       - name: Cache libheif build (Linux)
@@ -107,6 +107,14 @@ jobs:
 
       - name: Install build tools
         run: pip install hatch auditwheel delocate
+
+      # Ubuntu 22.04's apt patchelf is 0.14.3, but auditwheel repair needs
+      # >= 0.14.5. The PyPI package bundles a recent binary and, being on the
+      # setup-python PATH, takes precedence over /usr/bin. Staying on 22.04
+      # keeps the wheel's manylinux glibc baseline low (2.35).
+      - name: Install patchelf (Linux)
+        if: runner.os == 'Linux'
+        run: pip install patchelf
 
       - name: Rust unit tests (image-proc)
         working-directory: image-proc
