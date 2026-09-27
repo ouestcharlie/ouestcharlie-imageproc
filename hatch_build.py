@@ -1,12 +1,29 @@
 """Hatch build hook: compile the image-proc Rust binary and bundle it into the wheel."""
 
 import os
+import platform
 import shutil
 import subprocess
 import sys
+import sysconfig
 from pathlib import Path
 
 from hatchling.builders.hooks.plugin.interface import BuildHookInterface
+
+
+def _platform_tag() -> str:
+    """Wheel platform tag for the running OS, e.g. 'macosx_14_0_arm64'.
+
+    On macOS, MACOSX_DEPLOYMENT_TARGET (the minimum OS the binary targets) wins
+    over the interpreter's own build target. delocate-wheel (macOS) and
+    auditwheel repair (Linux) may still rewrite the tag after the build.
+    """
+    if sys.platform == "darwin":
+        target = os.environ.get("MACOSX_DEPLOYMENT_TARGET")
+        if target:
+            major, _, minor = target.partition(".")
+            return f"macosx_{major}_{minor or '0'}_{platform.machine()}"
+    return sysconfig.get_platform().replace("-", "_").replace(".", "_")
 
 
 class CustomBuildHook(BuildHookInterface):
@@ -58,9 +75,10 @@ class CustomBuildHook(BuildHookInterface):
             if sys.platform == "darwin" and "heic" in features:
                 self._bundle_macos_libs(dst, bin_dir)
 
-        # Mark the wheel as platform-specific (not pure Python)
+        # Platform-specific, but not tied to a CPython version: the wheel holds a
+        # standalone binary and a pure-Python wrapper, no extension module.
         build_data["pure_python"] = False
-        build_data["infer_tag"] = True
+        build_data["tag"] = f"py3-none-{_platform_tag()}"
 
     def _bundle_linux_libs(self, binary: Path, bin_dir: Path) -> None:
         """Make the Linux image-proc binary self-contained.
@@ -169,8 +187,13 @@ class CustomBuildHook(BuildHookInterface):
                 )
             for original, dst in copied.items():
                 subprocess.run(
-                    ["install_name_tool", "-change", original, f"@loader_path/{dst.name}",
-                     str(target)],
+                    [
+                        "install_name_tool",
+                        "-change",
+                        original,
+                        f"@loader_path/{dst.name}",
+                        str(target),
+                    ],
                     check=True,
                 )
             subprocess.run(["codesign", "-f", "-s", "-", str(target)], check=True)
