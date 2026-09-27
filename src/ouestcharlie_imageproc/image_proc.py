@@ -17,6 +17,7 @@ import logging
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
 _log = logging.getLogger(__name__)
 
@@ -68,7 +69,7 @@ class OneTimeImageProc:
     def __init__(self, binary: str | None = None) -> None:
         self._binary = binary  # resolved lazily so FileNotFoundError surfaces at request time
 
-    async def request(self, payload: dict) -> dict:
+    async def request(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Send one JSON request in a fresh process and return the parsed response.
 
         Raises ``RuntimeError`` if image-proc exits with a non-zero code or
@@ -87,7 +88,7 @@ class OneTimeImageProc:
         stdout, stderr = await proc.communicate(line)
         if proc.returncode != 0:
             raise RuntimeError(f"image-proc exited {proc.returncode}: {stderr.decode().strip()}")
-        result = json.loads(stdout.decode())
+        result: dict[str, Any] = json.loads(stdout.decode())
         if "error" in result:
             raise RuntimeError(f"image-proc error: {result['error']}")
         return result
@@ -141,7 +142,7 @@ class PersistentImageProc:
         )
         return self._proc
 
-    async def request(self, payload: dict) -> dict:
+    async def request(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Send one JSON request and return the parsed JSON response.
 
         Raises ``RuntimeError`` if image-proc returns an error object or if
@@ -167,7 +168,7 @@ class PersistentImageProc:
             if not response_line:
                 rc = proc.returncode
                 raise RuntimeError(f"image-proc closed stdout unexpectedly (exit code {rc})")
-            result = json.loads(response_line.decode())
+            result: dict[str, Any] = json.loads(response_line.decode())
             if "error" in result:
                 _log.error(
                     "PersistentImageProc error: pid=%d output=%s error=%r",

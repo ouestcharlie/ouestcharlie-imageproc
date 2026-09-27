@@ -2,6 +2,33 @@ repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.16.9
     hooks:
-      - id: ruff
+      - id: ruff-check
         args: [--fix]
       - id: ruff-format
+
+  - repo: local
+    hooks:
+      # Runs in the project venv (uv sync first): strict mode needs the real
+      # dependencies, which an isolated mirrors-mypy environment would lack.
+      # --no-sync: never re-sync (or rebuild) the venv from a commit hook.
+      - id: mypy
+        name: mypy
+        entry: uv run --no-sync mypy src
+        language: system
+        files: ^src/.*\.py$
+        pass_filenames: false
+      # Rust (image-proc crate). Formats in place like ruff-format; clippy with
+      # the release features, so HEIC/RAW code is linted too (needs libheif:
+      # brew install libheif / apt install libheif-dev).
+      - id: cargo-fmt
+        name: cargo fmt
+        entry: cargo fmt --manifest-path image-proc/Cargo.toml
+        language: system
+        files: ^image-proc/.*\.rs$
+        pass_filenames: false
+      - id: cargo-clippy
+        name: cargo clippy
+        entry: cargo clippy --manifest-path image-proc/Cargo.toml --features raw,heic --all-targets -- -D warnings
+        language: system
+        files: ^image-proc/(.*\.rs|Cargo\.(toml|lock))$
+        pass_filenames: false
