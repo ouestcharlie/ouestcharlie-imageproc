@@ -9,6 +9,10 @@ permissions:
 env:
   # libheif-rs 1.x requires libheif >= 1.18; built from source on Linux.
   LIBHEIF_VERSION: "1.19.7"
+  # Oldest macOS the wheel supports. Must match the macOS runner below: the
+  # Homebrew libheif (and codecs) bundled by delocate are built for the
+  # runner's OS, so they set the floor. Cargo reads this for the Rust binary.
+  MACOS_MIN_VERSION: "14.0"
 
 jobs:
   build-wheel:
@@ -18,7 +22,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-latest      # macOS arm64
+          - os: macos-14          # macOS arm64 — pinned, sets the wheel's minimum macOS
           - os: ubuntu-22.04      # Linux x86_64
           - os: windows-latest    # Windows x86_64
 
@@ -29,11 +33,19 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install nasm inih libheif
 
+      - name: Target minimum macOS version (macOS)
+        if: runner.os == 'macOS'
+        run: echo "MACOSX_DEPLOYMENT_TARGET=${MACOS_MIN_VERSION}" >> "$GITHUB_ENV"
+
       # Ubuntu 22.04's apt libheif is 1.12, but libheif-rs 1.x requires
       # libheif >= 1.18 (pkg-config reports it as "not found" on a version
       # mismatch). Build a recent libheif from source. Codec dev libs come
-      # from apt; the built tree is cached (keyed on LIBHEIF_VERSION) so the
+      # from apt; the install is cached (keyed on LIBHEIF_VERSION) so the
       # compile only runs on a cache miss.
+      #
+      # libheif installs into its own prefix, ~/libheif, and only that is
+      # cached. Caching /usr/local instead also swept up the runner's
+      # preinstalled toolchains (many GB): the cache save took ~30 minutes.
       - name: Install nasm and codec deps (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -46,8 +58,8 @@ jobs:
         id: cache-libheif
         uses: actions/cache@v4
         with:
-          path: /usr/local
-          key: libheif-${{ env.LIBHEIF_VERSION }}-ubuntu-22.04
+          path: ~/libheif
+          key: libheif-${{ env.LIBHEIF_VERSION }}-ubuntu-22.04-prefix
 
       - name: Build and install libheif from source (Linux)
         if: runner.os == 'Linux' && steps.cache-libheif.outputs.cache-hit != 'true'
@@ -56,16 +68,11 @@ jobs:
             https://github.com/strukturag/libheif.git /tmp/libheif
           cmake -S /tmp/libheif -B /tmp/libheif/build \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_INSTALL_PREFIX=/usr/local \
+            -DCMAKE_INSTALL_PREFIX="$HOME/libheif" \
+            -DCMAKE_INSTALL_LIBDIR=lib \
             -DWITH_EXAMPLES=OFF
           cmake --build /tmp/libheif/build -j"$(nproc)"
-          sudo cmake --install /tmp/libheif/build
-
-      - name: Refresh linker cache and expose pkg-config (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          sudo ldconfig
-          echo "PKG_CONFIG_PATH=/usr/local/lib/pkgconfig:/usr/local/lib/x86_64-linux-gnu/pkgconfig:$PKG_CONFIG_PATH" >> "$GITHUB_ENV"
+          cmake --install /tmp/libheif/build
 
       - name: Install nasm (Windows)
         if: runner.os == 'Windows'
@@ -103,7 +110,19 @@ jobs:
 
       - uses: actions/setup-python@v6
         with:
-          python-version: "3.13"
+          python-version: "3.14"
+
+      # Register the prefix with the dynamic linker (ldd must resolve libheif
+      # for the hatch hook to bundle it) and with pkg-config (for libheif-sys).
+      # Must run after setup-python, which overwrites PKG_CONFIG_PATH with its
+      # own lib/pkgconfig; appending keeps that entry.
+      - name: Expose libheif to the linker and pkg-config (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          echo "$HOME/libheif/lib" | sudo tee /etc/ld.so.conf.d/libheif.conf
+          sudo ldconfig
+          echo "PKG_CONFIG_PATH=$HOME/libheif/lib/pkgconfig:$PKG_CONFIG_PATH" >> "$GITHUB_ENV"
+          PKG_CONFIG_PATH="$HOME/libheif/lib/pkgconfig" pkg-config --modversion libheif
 
       - name: Install build tools
         run: pip install hatch auditwheel delocate
@@ -128,8 +147,27 @@ jobs:
 
       - name: Bundle libheif into wheel (macOS)
         if: runner.os == 'macOS'
+        # Fail instead of silently raising the wheel's macOS tag when a bundled
+        # library needs a newer macOS than MACOS_MIN_VERSION.
         run: |
-          delocate-wheel -w dist/ -v dist/*.whl
+          delocate-wheel --require-target-macos-version "${MACOS_MIN_VERSION}" -w dist/ -v dist/*.whl
+
+      # Belt and braces over delocate: every Mach-O file in the wheel (the
+      # binary and each bundled dylib) must load on MACOS_MIN_VERSION.
+      - name: Verify minimum macOS version of bundled binaries (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          rm -rf /tmp/whl && mkdir /tmp/whl && unzip -q dist/*.whl -d /tmp/whl
+          rc=0
+          while IFS= read -r f; do
+            minos="$(otool -l "$f" | awk '/LC_BUILD_VERSION/{b=1} b&&/minos/{print $2; exit}')"
+            echo "$minos  ${f#/tmp/whl/}"
+            if [ "$(printf '%s\n%s\n' "$minos" "$MACOS_MIN_VERSION" | sort -V | tail -1)" != "$MACOS_MIN_VERSION" ]; then
+              echo "::error::${f#/tmp/whl/} requires macOS $minos > $MACOS_MIN_VERSION"
+              rc=1
+            fi
+          done < <(find /tmp/whl -type f -exec sh -c 'file -b "$1" | grep -q Mach-O' _ {} \; -print)
+          exit $rc
 
       - name: Install wheel
         working-directory: dist
@@ -141,6 +179,9 @@ jobs:
 
       - name: Run integration tests
         run: python -m pytest tests_integration/ -v
+        env:
+          # The wheel was built with HEIC: HEIC tests must run, not skip.
+          IMAGE_PROC_FEATURE_HEIC: "1"
 
       - name: Repair wheel (Linux — retag linux_x86_64 → manylinux, bundle libheif)
         if: runner.os == 'Linux'
@@ -150,19 +191,34 @@ jobs:
 
       # image-proc is a standalone binary, so auditwheel leaves it alone — the
       # hatch build hook bundles libheif beside it and sets RUNPATH=$ORIGIN.
-      # This runner has /usr/local libheif, which would mask a broken bundle,
-      # so hide it and confirm the binary still resolves heif_init.
+      # This runner has libheif in ~/libheif, registered with ldconfig, which
+      # would mask a broken bundle, so hide it and confirm the binary still
+      # resolves heif_init.
       - name: Verify image-proc is self-contained (Linux)
         if: runner.os == 'Linux'
         run: |
           BIN="$(python -c 'import ouestcharlie_imageproc, pathlib; print(pathlib.Path(ouestcharlie_imageproc.__file__).parent / "bin" / "image-proc")')"
           echo "RUNPATH: $(patchelf --print-rpath "$BIN")"
           ls -1 "$(dirname "$BIN")" | grep -q '^libheif' || { echo "libheif not bundled next to image-proc"; exit 1; }
-          sudo mv /usr/local/lib /usr/local/lib.hidden
+          mv ~/libheif/lib ~/libheif/lib.hidden
           sudo ldconfig || true
           "$BIN" --version
-          sudo mv /usr/local/lib.hidden /usr/local/lib
+          mv ~/libheif/lib.hidden ~/libheif/lib
           sudo ldconfig || true
+
+      # The wheel holds no CPython extension, so it must install on any
+      # Python version (OEC-61). A cpXYZ tag would silently force an sdist
+      # build — without HEIC/RAW — on every other version.
+      - name: Verify wheel tag is Python-version independent
+        shell: bash
+        run: |
+          ls dist/*.whl
+          for w in dist/*.whl; do
+            case "$(basename "$w")" in
+              ouestcharlie_imageproc-*-py3-none-*.whl) ;;
+              *) echo "::error::unexpected wheel tag: $w"; exit 1 ;;
+            esac
+          done
 
       - uses: actions/upload-artifact@v6
         with:
@@ -176,7 +232,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with:
-          python-version: "3.13"
+          python-version: "3.14"
       - name: Install hatch
         run: pip install hatch
       - name: Build sdist

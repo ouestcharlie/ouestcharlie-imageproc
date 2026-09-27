@@ -153,6 +153,31 @@ System dependencies required at build time:
 - **Linux:** `apt-get install nasm libheif-dev`
 - **Windows:** `choco install nasm`; `libheif` via `vcpkg` (see CI workflow)
 
+### Wheel tags and platform floor
+
+The wheel holds a standalone binary and a pure-Python wrapper, no CPython
+extension, so `hatch_build.py` tags it `py3-none-<platform>` instead of
+inferring a `cpXYZ` tag. One wheel per OS then installs on every supported
+Python version.
+
+| OS | Wheel platform tag | Floor set by |
+|---|---|---|
+| macOS arm64 | `macosx_14_0_arm64` | `macos-14` CI runner (Homebrew libheif and codecs are built for it) and `MACOSX_DEPLOYMENT_TARGET=14.0` (Rust binary) |
+| Linux x86_64 | `manylinux_2_34_x86_64` | `ubuntu-22.04` runner, retagged by `auditwheel repair` |
+| Windows x86_64 | `win_amd64` | — |
+
+On macOS, `delocate-wheel --require-target-macos-version` and a CI step reading
+each bundled Mach-O file's `minos` fail the build if anything needs a newer macOS
+than the floor. Raising the floor means moving the runner and `MACOS_MIN_VERSION`
+in `.github/workflows/_build.yml` together.
+
+⚠️ **No matching wheel means a silent sdist build without HEIC/RAW.** When pip or
+uv find no wheel for the platform, they build from the sdist, and the hook only
+enables the features when `IMAGE_PROC_FEATURE_HEIC`/`IMAGE_PROC_FEATURE_RAW` are
+set. The resulting binary then answers HEIC requests with "rebuild with
+--features heic". Woof's CI installs with `--only-binary ouestcharlie-imageproc`
+to catch a platform or Python version the published wheels don't cover.
+
 ## Version Bumping
 
 When the JSON protocol changes in a breaking way, bump both:

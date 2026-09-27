@@ -11,6 +11,7 @@ when the binary cannot be found.
 from __future__ import annotations
 
 import asyncio
+import os
 import pathlib
 import tempfile
 from unittest.mock import patch
@@ -78,15 +79,17 @@ def _heic_supported() -> bool:
                 )
                 return True
             except RuntimeError as e:
-                if "rebuild with --features heic" in str(e):
-                    return False
-                return True  # some other error — let the real test surface it
+                # Any other error — let the real test surface it.
+                return "rebuild with --features heic" not in str(e)
 
     return asyncio.run(_probe())
 
 
+# CI builds with IMAGE_PROC_FEATURE_HEIC=1 and re-exports it to the test step:
+# there a binary without HEIC is a packaging bug, so run the HEIC tests (and let
+# them fail) instead of skipping them (OEC-61).
 requires_heic = pytest.mark.skipif(
-    not _heic_supported(),
+    not os.environ.get("IMAGE_PROC_FEATURE_HEIC") and not _heic_supported(),
     reason="image-proc binary built without --features heic",
 )
 

@@ -20,6 +20,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+from importlib import metadata
 from pathlib import Path
 
 import pytest
@@ -92,6 +93,29 @@ def test_binary_major_version_matches_protocol() -> None:
     )
 
 
+def test_installed_wheel_tag_is_python_independent() -> None:
+    """The installed wheel is tagged py3-none-<platform>, not cpXYZ-cpXYZ.
+
+    The wheel holds a standalone binary and a pure-Python wrapper, so it must
+    install on any Python version. A CPython-specific tag makes pip/uv fall back
+    to the sdist on every other version, and that local build silently lacks
+    HEIC/RAW (OEC-61). Skipped when the package is not installed from a wheel.
+    """
+    try:
+        wheel_meta = metadata.distribution("ouestcharlie-imageproc").read_text("WHEEL")
+    except metadata.PackageNotFoundError:
+        pytest.skip("ouestcharlie-imageproc is not installed")
+    if not wheel_meta:
+        pytest.skip("no WHEEL metadata (not installed from a wheel)")
+
+    tags = [
+        line.split(":", 1)[1].strip() for line in wheel_meta.splitlines() if line.startswith("Tag:")
+    ]
+    assert tags, f"no Tag in WHEEL metadata:\n{wheel_meta}"
+    for tag in tags:
+        assert tag.startswith("py3-none-"), f"wheel tag {tag!r} is tied to a Python version"
+
+
 @requires_binary
 @pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux dynamic-linking check")
 def test_linux_binary_is_self_contained() -> None:
@@ -106,9 +130,7 @@ def test_linux_binary_is_self_contained() -> None:
     """
     binary = Path(_find_image_proc_binary()).resolve()
     bin_dir = binary.parent
-    bundled_names = {
-        p.name for p in bin_dir.iterdir() if p.name.startswith(_BUNDLED_LIB_PREFIXES)
-    }
+    bundled_names = {p.name for p in bin_dir.iterdir() if p.name.startswith(_BUNDLED_LIB_PREFIXES)}
     if not bundled_names:
         pytest.skip("no bundled native libs next to the binary (dev/local build)")
 
