@@ -74,15 +74,6 @@ jobs:
           cmake --build /tmp/libheif/build -j"$(nproc)"
           cmake --install /tmp/libheif/build
 
-      # Register the prefix with the dynamic linker (ldd must resolve libheif
-      # for the hatch hook to bundle it) and with pkg-config (for libheif-sys).
-      - name: Expose libheif to the linker and pkg-config (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          echo "$HOME/libheif/lib" | sudo tee /etc/ld.so.conf.d/libheif.conf
-          sudo ldconfig
-          echo "PKG_CONFIG_PATH=$HOME/libheif/lib/pkgconfig:$PKG_CONFIG_PATH" >> "$GITHUB_ENV"
-
       - name: Install nasm (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -120,6 +111,18 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.14"
+
+      # Register the prefix with the dynamic linker (ldd must resolve libheif
+      # for the hatch hook to bundle it) and with pkg-config (for libheif-sys).
+      # Must run after setup-python, which overwrites PKG_CONFIG_PATH with its
+      # own lib/pkgconfig; appending keeps that entry.
+      - name: Expose libheif to the linker and pkg-config (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          echo "$HOME/libheif/lib" | sudo tee /etc/ld.so.conf.d/libheif.conf
+          sudo ldconfig
+          echo "PKG_CONFIG_PATH=$HOME/libheif/lib/pkgconfig:$PKG_CONFIG_PATH" >> "$GITHUB_ENV"
+          PKG_CONFIG_PATH="$HOME/libheif/lib/pkgconfig" pkg-config --modversion libheif
 
       - name: Install build tools
         run: pip install hatch auditwheel delocate
