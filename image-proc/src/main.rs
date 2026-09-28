@@ -133,22 +133,34 @@ enum Response {
 fn process_line(line: &str, expected_major: u64) -> Response {
     let value: serde_json::Value = match serde_json::from_str(line) {
         Ok(v) => v,
-        Err(e) => return Response::Error { error: format!("invalid JSON input: {e}") },
+        Err(e) => {
+            return Response::Error {
+                error: format!("invalid JSON input: {e}"),
+            }
+        }
     };
     match value.get("protocol_version").and_then(|v| v.as_u64()) {
-        None => Response::Error { error: "missing or invalid protocol_version field".to_string() },
+        None => Response::Error {
+            error: "missing or invalid protocol_version field".to_string(),
+        },
         Some(proto) if proto != expected_major => Response::Error {
             error: format!("unsupported protocol version {proto}, expected {expected_major}"),
         },
         Some(_) => match serde_json::from_value::<Request>(value) {
-            Err(e) => Response::Error { error: format!("invalid request: {e}") },
+            Err(e) => Response::Error {
+                error: format!("invalid request: {e}"),
+            },
             Ok(Request::AvifGrid(input)) => match run_avif_grid(input) {
                 Ok(out) => Response::AvifGrid(out),
-                Err(e) => Response::Error { error: e.to_string() },
+                Err(e) => Response::Error {
+                    error: e.to_string(),
+                },
             },
             Ok(Request::JpegPreview(input)) => match run_jpeg_preview(input) {
                 Ok(out) => Response::JpegPreview(out),
-                Err(e) => Response::Error { error: e.to_string() },
+                Err(e) => Response::Error {
+                    error: e.to_string(),
+                },
             },
         },
     }
@@ -209,9 +221,12 @@ fn run_avif_grid(input: AvifGridInput) -> Result<AvifGridOutput, Box<dyn std::er
     let total_cells = (cols * rows) as usize;
 
     // Phase 1: Decode + resize + fit in parallel.
-    let mut tiles: Vec<RgbImage> = input.photos
+    let mut tiles: Vec<RgbImage> = input
+        .photos
         .par_iter()
-        .map(|photo| decode_and_prepare(&photo.path, &photo.ext, photo.orientation, tile_size, &fit))
+        .map(|photo| {
+            decode_and_prepare(&photo.path, &photo.ext, photo.orientation, tile_size, &fit)
+        })
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e: String| -> Box<dyn std::error::Error> { e.into() })?;
 
@@ -227,7 +242,12 @@ fn run_avif_grid(input: AvifGridInput) -> Result<AvifGridOutput, Box<dyn std::er
     for (i, tile) in tiles.iter().enumerate() {
         let col = (i as u32) % cols;
         let row = (i as u32) / cols;
-        image::imageops::overlay(&mut canvas, tile, (col * tile_size) as i64, (row * tile_size) as i64);
+        image::imageops::overlay(
+            &mut canvas,
+            tile,
+            (col * tile_size) as i64,
+            (row * tile_size) as i64,
+        );
     }
 
     // Phase 3: Encode as AVIF using ravif (pure Rust, no system deps).
@@ -241,15 +261,25 @@ fn run_avif_grid(input: AvifGridInput) -> Result<AvifGridOutput, Box<dyn std::er
 
     std::fs::write(&input.output, &encoded.avif_file)?;
 
-    let photo_order: Vec<String> = input.photos.iter().map(|p| p.content_hash.clone()).collect();
-    Ok(AvifGridOutput { rows, tile_size, photo_order })
+    let photo_order: Vec<String> = input
+        .photos
+        .iter()
+        .map(|p| p.content_hash.clone())
+        .collect();
+    Ok(AvifGridOutput {
+        rows,
+        tile_size,
+        photo_order,
+    })
 }
 
 // ---------------------------------------------------------------------------
 // Command: jpeg_preview
 // ---------------------------------------------------------------------------
 
-fn run_jpeg_preview(input: JpegPreviewInput) -> Result<JpegPreviewOutput, Box<dyn std::error::Error>> {
+fn run_jpeg_preview(
+    input: JpegPreviewInput,
+) -> Result<JpegPreviewOutput, Box<dyn std::error::Error>> {
     let photo = &input.photo;
     let img = decode_photo(&photo.path, &photo.ext)
         .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
@@ -259,7 +289,8 @@ fn run_jpeg_preview(input: JpegPreviewInput) -> Result<JpegPreviewOutput, Box<dy
 
     let file = std::fs::File::create(&input.output)?;
     let mut writer = std::io::BufWriter::new(file);
-    let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut writer, input.quality);
+    let mut encoder =
+        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut writer, input.quality);
     encoder.encode_image(&img.into_rgb8())?;
 
     Ok(JpegPreviewOutput { width, height })
@@ -316,30 +347,51 @@ fn resize_short_edge(img: DynamicImage, size: u32) -> DynamicImage {
     } else {
         ((w as f64 * size as f64 / h as f64).round() as u32, size)
     };
-    img.resize_exact(new_w.max(1), new_h.max(1), image::imageops::FilterType::Lanczos3)
+    img.resize_exact(
+        new_w.max(1),
+        new_h.max(1),
+        image::imageops::FilterType::Lanczos3,
+    )
 }
 
 fn resize_long_edge(img: DynamicImage, size: u32) -> DynamicImage {
     let (w, h) = img.dimensions();
-    if w.max(h) <= size { return img; }
+    if w.max(h) <= size {
+        return img;
+    }
     let (new_w, new_h) = if w >= h {
         (size, (h as f64 * size as f64 / w as f64).round() as u32)
     } else {
         ((w as f64 * size as f64 / h as f64).round() as u32, size)
     };
-    img.resize_exact(new_w.max(1), new_h.max(1), image::imageops::FilterType::Lanczos3)
+    img.resize_exact(
+        new_w.max(1),
+        new_h.max(1),
+        image::imageops::FilterType::Lanczos3,
+    )
 }
 
 fn fit_crop(img: DynamicImage, size: u32) -> RgbImage {
     let (w, h) = img.dimensions();
-    img.crop_imm(w.saturating_sub(size) / 2, h.saturating_sub(size) / 2, size, size).into_rgb8()
+    img.crop_imm(
+        w.saturating_sub(size) / 2,
+        h.saturating_sub(size) / 2,
+        size,
+        size,
+    )
+    .into_rgb8()
 }
 
 fn fit_pad(img: DynamicImage, size: u32) -> RgbImage {
     let rgb = img.into_rgb8();
     let (fw, fh) = rgb.dimensions();
     let mut canvas = RgbImage::new(size, size);
-    image::imageops::overlay(&mut canvas, &rgb, (size.saturating_sub(fw) / 2) as i64, (size.saturating_sub(fh) / 2) as i64);
+    image::imageops::overlay(
+        &mut canvas,
+        &rgb,
+        (size.saturating_sub(fw) / 2) as i64,
+        (size.saturating_sub(fh) / 2) as i64,
+    );
     canvas
 }
 
@@ -354,14 +406,19 @@ fn decode_raw(_path: &Path) -> Result<DynamicImage, String> {
 
 #[cfg(not(feature = "raw"))]
 fn decode_raw(path: &Path) -> Result<DynamicImage, String> {
-    Err(format!("RAW format not supported; rebuild with --features raw: {}", path.display()))
+    Err(format!(
+        "RAW format not supported; rebuild with --features raw: {}",
+        path.display()
+    ))
 }
 
 #[cfg(feature = "heic")]
 fn decode_heic(path: &Path) -> Result<DynamicImage, String> {
     use libheif_rs::{ColorSpace, HeifContext, LibHeif, RgbChroma};
 
-    let path_str = path.to_str().ok_or_else(|| format!("non-UTF8 path: {}", path.display()))?;
+    let path_str = path
+        .to_str()
+        .ok_or_else(|| format!("non-UTF8 path: {}", path.display()))?;
     let ctx = HeifContext::read_from_file(path_str)
         .map_err(|e| format!("failed to open {}: {e}", path.display()))?;
     let handle = ctx
@@ -392,7 +449,10 @@ fn decode_heic(path: &Path) -> Result<DynamicImage, String> {
 
 #[cfg(not(feature = "heic"))]
 fn decode_heic(path: &Path) -> Result<DynamicImage, String> {
-    Err(format!("HEIC/HEIF format not supported; rebuild with --features heic: {}", path.display()))
+    Err(format!(
+        "HEIC/HEIF format not supported; rebuild with --features heic: {}",
+        path.display()
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -418,64 +478,216 @@ mod tests {
 
     fn solid(w: u32, h: u32, pixel: Rgb<u8>) -> DynamicImage {
         let mut img = RgbImage::new(w, h);
-        for p in img.pixels_mut() { *p = pixel; }
+        for p in img.pixels_mut() {
+            *p = pixel;
+        }
         DynamicImage::ImageRgb8(img)
     }
-    fn landscape() -> DynamicImage { solid(400, 200, Rgb([200, 100, 50])) }
-    fn portrait()  -> DynamicImage { solid(200, 400, Rgb([50, 100, 200])) }
-    fn square()    -> DynamicImage { solid(300, 300, Rgb([128, 128, 128])) }
+    fn landscape() -> DynamicImage {
+        solid(400, 200, Rgb([200, 100, 50]))
+    }
+    fn portrait() -> DynamicImage {
+        solid(200, 400, Rgb([50, 100, 200]))
+    }
+    fn square() -> DynamicImage {
+        solid(300, 300, Rgb([128, 128, 128]))
+    }
 
-    #[test] fn grid_dims_one()  { assert_eq!(grid_dims(1),  (8, 1)); }
-    #[test] fn grid_dims_two()  { assert_eq!(grid_dims(2),  (8, 1)); }
-    #[test] fn grid_dims_four() { assert_eq!(grid_dims(4),  (8, 1)); }
-    #[test] fn grid_dims_five() { assert_eq!(grid_dims(5),  (8, 1)); }
-    #[test] fn grid_dims_nine() { assert_eq!(grid_dims(9),  (8, 2)); }
-    #[test] fn grid_dims_ten()  { assert_eq!(grid_dims(10), (8, 2)); }
+    #[test]
+    fn grid_dims_one() {
+        assert_eq!(grid_dims(1), (8, 1));
+    }
+    #[test]
+    fn grid_dims_two() {
+        assert_eq!(grid_dims(2), (8, 1));
+    }
+    #[test]
+    fn grid_dims_four() {
+        assert_eq!(grid_dims(4), (8, 1));
+    }
+    #[test]
+    fn grid_dims_five() {
+        assert_eq!(grid_dims(5), (8, 1));
+    }
+    #[test]
+    fn grid_dims_nine() {
+        assert_eq!(grid_dims(9), (8, 2));
+    }
+    #[test]
+    fn grid_dims_ten() {
+        assert_eq!(grid_dims(10), (8, 2));
+    }
 
-    #[test] fn orientation_none_is_noop()   { assert_eq!(apply_orientation(landscape(), None).dimensions(),    (400, 200)); }
-    #[test] fn orientation_1_is_noop()      { assert_eq!(apply_orientation(landscape(), Some(1)).dimensions(), (400, 200)); }
-    #[test] fn orientation_6_rotates_90_cw(){ assert_eq!(apply_orientation(landscape(), Some(6)).dimensions(), (200, 400)); }
-    #[test] fn orientation_8_rotates_90_ccw(){ assert_eq!(apply_orientation(landscape(), Some(8)).dimensions(),(200, 400)); }
-    #[test] fn orientation_3_rotates_180() { assert_eq!(apply_orientation(landscape(), Some(3)).dimensions(), (400, 200)); }
-    #[test] fn orientation_2_flips_h()     { assert_eq!(apply_orientation(landscape(), Some(2)).dimensions(), (400, 200)); }
-    #[test] fn orientation_4_flips_v()     { assert_eq!(apply_orientation(landscape(), Some(4)).dimensions(), (400, 200)); }
-    #[test] fn orientation_5_transposes()  { assert_eq!(apply_orientation(landscape(), Some(5)).dimensions(), (200, 400)); }
-    #[test] fn orientation_7_transverses() { assert_eq!(apply_orientation(landscape(), Some(7)).dimensions(), (200, 400)); }
-    #[test] fn orientation_unknown_is_noop(){ assert_eq!(apply_orientation(landscape(), Some(9)).dimensions(),(400, 200)); }
+    #[test]
+    fn orientation_none_is_noop() {
+        assert_eq!(
+            apply_orientation(landscape(), None).dimensions(),
+            (400, 200)
+        );
+    }
+    #[test]
+    fn orientation_1_is_noop() {
+        assert_eq!(
+            apply_orientation(landscape(), Some(1)).dimensions(),
+            (400, 200)
+        );
+    }
+    #[test]
+    fn orientation_6_rotates_90_cw() {
+        assert_eq!(
+            apply_orientation(landscape(), Some(6)).dimensions(),
+            (200, 400)
+        );
+    }
+    #[test]
+    fn orientation_8_rotates_90_ccw() {
+        assert_eq!(
+            apply_orientation(landscape(), Some(8)).dimensions(),
+            (200, 400)
+        );
+    }
+    #[test]
+    fn orientation_3_rotates_180() {
+        assert_eq!(
+            apply_orientation(landscape(), Some(3)).dimensions(),
+            (400, 200)
+        );
+    }
+    #[test]
+    fn orientation_2_flips_h() {
+        assert_eq!(
+            apply_orientation(landscape(), Some(2)).dimensions(),
+            (400, 200)
+        );
+    }
+    #[test]
+    fn orientation_4_flips_v() {
+        assert_eq!(
+            apply_orientation(landscape(), Some(4)).dimensions(),
+            (400, 200)
+        );
+    }
+    #[test]
+    fn orientation_5_transposes() {
+        assert_eq!(
+            apply_orientation(landscape(), Some(5)).dimensions(),
+            (200, 400)
+        );
+    }
+    #[test]
+    fn orientation_7_transverses() {
+        assert_eq!(
+            apply_orientation(landscape(), Some(7)).dimensions(),
+            (200, 400)
+        );
+    }
+    #[test]
+    fn orientation_unknown_is_noop() {
+        assert_eq!(
+            apply_orientation(landscape(), Some(9)).dimensions(),
+            (400, 200)
+        );
+    }
 
-    #[test] fn resize_short_edge_landscape() { let out = resize_short_edge(landscape(), 128); assert_eq!(out.height(), 128); assert!(out.width() > out.height()); }
-    #[test] fn resize_short_edge_portrait()  { let out = resize_short_edge(portrait(),  128); assert_eq!(out.width(), 128);  assert!(out.height() > out.width()); }
-    #[test] fn resize_short_edge_square()    { assert_eq!(resize_short_edge(square(), 64).dimensions(), (64, 64)); }
+    #[test]
+    fn resize_short_edge_landscape() {
+        let out = resize_short_edge(landscape(), 128);
+        assert_eq!(out.height(), 128);
+        assert!(out.width() > out.height());
+    }
+    #[test]
+    fn resize_short_edge_portrait() {
+        let out = resize_short_edge(portrait(), 128);
+        assert_eq!(out.width(), 128);
+        assert!(out.height() > out.width());
+    }
+    #[test]
+    fn resize_short_edge_square() {
+        assert_eq!(resize_short_edge(square(), 64).dimensions(), (64, 64));
+    }
 
-    #[test] fn resize_long_edge_landscape()         { let out = resize_long_edge(landscape(), 256); assert_eq!(out.width(), 256); assert!(out.height() < out.width()); }
-    #[test] fn resize_long_edge_portrait()          { let out = resize_long_edge(portrait(),  256); assert_eq!(out.height(), 256); assert!(out.width() < out.height()); }
-    #[test] fn resize_long_edge_already_fits_is_noop() { assert_eq!(resize_long_edge(landscape(), 512).dimensions(), (400, 200)); }
-    #[test] fn resize_long_edge_square_equal_size_is_noop() { assert_eq!(resize_long_edge(square(), 300).dimensions(), (300, 300)); }
+    #[test]
+    fn resize_long_edge_landscape() {
+        let out = resize_long_edge(landscape(), 256);
+        assert_eq!(out.width(), 256);
+        assert!(out.height() < out.width());
+    }
+    #[test]
+    fn resize_long_edge_portrait() {
+        let out = resize_long_edge(portrait(), 256);
+        assert_eq!(out.height(), 256);
+        assert!(out.width() < out.height());
+    }
+    #[test]
+    fn resize_long_edge_already_fits_is_noop() {
+        assert_eq!(resize_long_edge(landscape(), 512).dimensions(), (400, 200));
+    }
+    #[test]
+    fn resize_long_edge_square_equal_size_is_noop() {
+        assert_eq!(resize_long_edge(square(), 300).dimensions(), (300, 300));
+    }
 
-    #[test] fn fit_crop_output_is_square_tile()     { assert_eq!(fit_crop(resize_short_edge(landscape(), 128), 128).dimensions(), (128, 128)); }
-    #[test] fn fit_crop_portrait_output_is_square_tile() { assert_eq!(fit_crop(resize_short_edge(portrait(), 64), 64).dimensions(), (64, 64)); }
+    #[test]
+    fn fit_crop_output_is_square_tile() {
+        assert_eq!(
+            fit_crop(resize_short_edge(landscape(), 128), 128).dimensions(),
+            (128, 128)
+        );
+    }
+    #[test]
+    fn fit_crop_portrait_output_is_square_tile() {
+        assert_eq!(
+            fit_crop(resize_short_edge(portrait(), 64), 64).dimensions(),
+            (64, 64)
+        );
+    }
 
-    #[test] fn fit_pad_output_is_square_tile() { assert_eq!(fit_pad(resize_long_edge(landscape(), 128), 128).dimensions(), (128, 128)); }
-    #[test] fn fit_pad_corners_are_black() {
+    #[test]
+    fn fit_pad_output_is_square_tile() {
+        assert_eq!(
+            fit_pad(resize_long_edge(landscape(), 128), 128).dimensions(),
+            (128, 128)
+        );
+    }
+    #[test]
+    fn fit_pad_corners_are_black() {
         let out = fit_pad(resize_long_edge(landscape(), 128), 128);
         assert_eq!(out.get_pixel(0, 0), &Rgb([0, 0, 0]));
     }
-    #[test] fn fit_pad_center_is_not_black() {
-        let out = fit_pad(resize_long_edge(solid(400, 200, Rgb([255, 0, 0])), 128), 128);
-        assert_ne!(out.get_pixel(64, 64), &Rgb([0, 0, 0]), "centre should be non-black");
+    #[test]
+    fn fit_pad_center_is_not_black() {
+        let out = fit_pad(
+            resize_long_edge(solid(400, 200, Rgb([255, 0, 0])), 128),
+            128,
+        );
+        assert_ne!(
+            out.get_pixel(64, 64),
+            &Rgb([0, 0, 0]),
+            "centre should be non-black"
+        );
     }
 
     #[test]
     fn jpeg_preview_landscape_resizes_correctly() {
         let tmpdir = std::env::temp_dir();
-        let input_path  = tmpdir.join("imgproc_test_in.jpg");
+        let input_path = tmpdir.join("imgproc_test_in.jpg");
         let output_path = tmpdir.join("imgproc_test_out.jpg");
         // 2000×1000 landscape; after resize_long_edge(1440) → 1440×720
-        solid(2000, 1000, Rgb([200, 100, 50])).save(&input_path).unwrap();
+        solid(2000, 1000, Rgb([200, 100, 50]))
+            .save(&input_path)
+            .unwrap();
         let result = run_jpeg_preview(JpegPreviewInput {
-            photo: PhotoInput { path: input_path, ext: ".jpg".into(), orientation: None, content_hash: "Kf3QzA2nBcR8xYvLm1P9w".into() },
-            max_long_edge: 1440, quality: 85, output: output_path.clone(),
-        }).unwrap();
+            photo: PhotoInput {
+                path: input_path,
+                ext: ".jpg".into(),
+                orientation: None,
+                content_hash: "Kf3QzA2nBcR8xYvLm1P9w".into(),
+            },
+            max_long_edge: 1440,
+            quality: 85,
+            output: output_path.clone(),
+        })
+        .unwrap();
         assert_eq!(result.width, 1440);
         assert_eq!(result.height, 720);
         assert!(output_path.exists());
@@ -484,14 +696,24 @@ mod tests {
     #[test]
     fn jpeg_preview_small_image_unchanged() {
         let tmpdir = std::env::temp_dir();
-        let input_path  = tmpdir.join("imgproc_small_in.jpg");
+        let input_path = tmpdir.join("imgproc_small_in.jpg");
         let output_path = tmpdir.join("imgproc_small_out.jpg");
         // 800×600 — fits within 1440 → unchanged
-        solid(800, 600, Rgb([100, 150, 200])).save(&input_path).unwrap();
+        solid(800, 600, Rgb([100, 150, 200]))
+            .save(&input_path)
+            .unwrap();
         let result = run_jpeg_preview(JpegPreviewInput {
-            photo: PhotoInput { path: input_path, ext: ".jpg".into(), orientation: None, content_hash: "Mw9xLpQrNvBsHtYjKdAcZg".into() },
-            max_long_edge: 1440, quality: 85, output: output_path,
-        }).unwrap();
+            photo: PhotoInput {
+                path: input_path,
+                ext: ".jpg".into(),
+                orientation: None,
+                content_hash: "Mw9xLpQrNvBsHtYjKdAcZg".into(),
+            },
+            max_long_edge: 1440,
+            quality: 85,
+            output: output_path,
+        })
+        .unwrap();
         assert_eq!(result.width, 800);
         assert_eq!(result.height, 600);
     }
@@ -500,34 +722,73 @@ mod tests {
     fn make_jpeg(name: &str, w: u32, h: u32, px: Rgb<u8>, hash: &str) -> PhotoInput {
         let path = std::env::temp_dir().join(name);
         solid(w, h, px).save(&path).unwrap();
-        PhotoInput { path, ext: ".jpg".into(), orientation: None, content_hash: hash.into() }
+        PhotoInput {
+            path,
+            ext: ".jpg".into(),
+            orientation: None,
+            content_hash: hash.into(),
+        }
     }
 
     #[test]
     fn avif_grid_single_photo_produces_valid_file() {
         let output = std::env::temp_dir().join("avif_grid_1.avif");
         let result = run_avif_grid(AvifGridInput {
-            photos: vec![make_jpeg("ag1_a.jpg", 300, 300, Rgb([200, 100, 50]), "Aaaa3QzA2nBcR8xYvLm1Pw")],
+            photos: vec![make_jpeg(
+                "ag1_a.jpg",
+                300,
+                300,
+                Rgb([200, 100, 50]),
+                "Aaaa3QzA2nBcR8xYvLm1Pw",
+            )],
             tile_size: 64,
             fit: "crop".into(),
             quality: 55,
             output: output.clone(),
-        }).unwrap();
+        })
+        .unwrap();
         assert_eq!(result.rows, 1);
         assert_eq!(result.tile_size, 64);
         assert_eq!(result.photo_order, vec!["Aaaa3QzA2nBcR8xYvLm1Pw"]);
         assert!(output.exists());
-        assert!(output.metadata().unwrap().len() > 0, "output file should be non-empty");
+        assert!(
+            output.metadata().unwrap().len() > 0,
+            "output file should be non-empty"
+        );
     }
 
     #[test]
     fn avif_grid_four_photos_four_by_one() {
         let output = std::env::temp_dir().join("avif_grid_4.avif");
         let photos = vec![
-            make_jpeg("ag4_a.jpg", 200, 200, Rgb([255,   0,   0]), "Artc3QzA2nBcR8xYvLm1Pw"),
-            make_jpeg("ag4_b.jpg", 200, 200, Rgb([  0, 255,   0]), "Brtc3QzA2nBcR8xYvLm1Pw"),
-            make_jpeg("ag4_c.jpg", 200, 200, Rgb([  0,   0, 255]), "Crtc3QzA2nBcR8xYvLm1Pw"),
-            make_jpeg("ag4_d.jpg", 200, 200, Rgb([255, 255,   0]), "Drtc3QzA2nBcR8xYvLm1Pw"),
+            make_jpeg(
+                "ag4_a.jpg",
+                200,
+                200,
+                Rgb([255, 0, 0]),
+                "Artc3QzA2nBcR8xYvLm1Pw",
+            ),
+            make_jpeg(
+                "ag4_b.jpg",
+                200,
+                200,
+                Rgb([0, 255, 0]),
+                "Brtc3QzA2nBcR8xYvLm1Pw",
+            ),
+            make_jpeg(
+                "ag4_c.jpg",
+                200,
+                200,
+                Rgb([0, 0, 255]),
+                "Crtc3QzA2nBcR8xYvLm1Pw",
+            ),
+            make_jpeg(
+                "ag4_d.jpg",
+                200,
+                200,
+                Rgb([255, 255, 0]),
+                "Drtc3QzA2nBcR8xYvLm1Pw",
+            ),
         ];
         let hashes: Vec<String> = photos.iter().map(|p| p.content_hash.clone()).collect();
         let result = run_avif_grid(AvifGridInput {
@@ -536,7 +797,8 @@ mod tests {
             fit: "crop".into(),
             quality: 55,
             output: output.clone(),
-        }).unwrap();
+        })
+        .unwrap();
         assert_eq!(result.rows, 1);
         assert_eq!(result.photo_order, hashes);
         assert!(output.exists());
@@ -546,16 +808,25 @@ mod tests {
     fn avif_grid_five_photos_five_by_one() {
         // 5 photos → cols=8, rows=1 (3 padding tiles)
         let output = std::env::temp_dir().join("avif_grid_5.avif");
-        let photos: Vec<PhotoInput> = (0..5).map(|i| {
-            make_jpeg(&format!("ag5_{i}.jpg"), 100, 100, Rgb([i * 50, 100, 200]), &format!("Photo{i:0>17}"))
-        }).collect();
+        let photos: Vec<PhotoInput> = (0..5)
+            .map(|i| {
+                make_jpeg(
+                    &format!("ag5_{i}.jpg"),
+                    100,
+                    100,
+                    Rgb([i * 50, 100, 200]),
+                    &format!("Photo{i:0>17}"),
+                )
+            })
+            .collect();
         let result = run_avif_grid(AvifGridInput {
             photos,
             tile_size: 16,
             fit: "pad".into(),
             quality: 55,
             output: output.clone(),
-        }).unwrap();
+        })
+        .unwrap();
         assert_eq!(result.rows, 1);
         assert_eq!(result.photo_order.len(), 5);
         assert!(output.exists());
@@ -564,17 +835,24 @@ mod tests {
     #[test]
     fn avif_grid_photo_order_matches_input_hashes() {
         let output = std::env::temp_dir().join("avif_grid_order.avif");
-        let hashes = vec!["Zrt3zA2nBcR8xYvLm1P9wx", "Art3zA2nBcR8xYvLm1P9wx", "Mrt3zA2nBcR8xYvLm1P9wx"];
-        let photos: Vec<PhotoInput> = hashes.iter().enumerate().map(|(i, h)| {
-            make_jpeg(&format!("ago_{i}.jpg"), 80, 80, Rgb([100, 100, 100]), h)
-        }).collect();
+        let hashes = vec![
+            "Zrt3zA2nBcR8xYvLm1P9wx",
+            "Art3zA2nBcR8xYvLm1P9wx",
+            "Mrt3zA2nBcR8xYvLm1P9wx",
+        ];
+        let photos: Vec<PhotoInput> = hashes
+            .iter()
+            .enumerate()
+            .map(|(i, h)| make_jpeg(&format!("ago_{i}.jpg"), 80, 80, Rgb([100, 100, 100]), h))
+            .collect();
         let result = run_avif_grid(AvifGridInput {
             photos,
             tile_size: 16,
             fit: "crop".into(),
             quality: 55,
             output,
-        }).unwrap();
+        })
+        .unwrap();
         // photo_order must echo input hashes in input order (caller controls ordering)
         assert_eq!(result.photo_order, hashes);
     }
@@ -607,21 +885,30 @@ mod tests {
     fn test_missing_protocol_version() {
         let line = r#"{"photo": {"path": "/tmp/x.jpg", "ext": ".jpg", "content_hash": "abc"}, "max_long_edge": 1440, "quality": 85, "output": "/tmp/out.jpg"}"#;
         let err = error_msg(process_line(line, 1));
-        assert!(err.contains("missing or invalid protocol_version"), "got: {err}");
+        assert!(
+            err.contains("missing or invalid protocol_version"),
+            "got: {err}"
+        );
     }
 
     #[test]
     fn test_wrong_major_version() {
         let line = r#"{"protocol_version": 2, "photo": {"path": "/tmp/x.jpg", "ext": ".jpg", "content_hash": "abc"}, "max_long_edge": 1440, "quality": 85, "output": "/tmp/out.jpg"}"#;
         let err = error_msg(process_line(line, 1));
-        assert!(err.contains("unsupported protocol version 2, expected 1"), "got: {err}");
+        assert!(
+            err.contains("unsupported protocol version 2, expected 1"),
+            "got: {err}"
+        );
     }
 
     #[test]
     fn test_version_zero_rejected() {
         let line = r#"{"protocol_version": 0, "photo": {"path": "/tmp/x.jpg", "ext": ".jpg", "content_hash": "abc"}, "max_long_edge": 1440, "quality": 85, "output": "/tmp/out.jpg"}"#;
         let err = error_msg(process_line(line, 1));
-        assert!(err.contains("unsupported protocol version 0, expected 1"), "got: {err}");
+        assert!(
+            err.contains("unsupported protocol version 0, expected 1"),
+            "got: {err}"
+        );
     }
 
     #[test]
@@ -629,7 +916,10 @@ mod tests {
         // protocol_version must be an integer, not a string.
         let line = r#"{"protocol_version": "1", "photo": {"path": "/tmp/x.jpg", "ext": ".jpg", "content_hash": "abc"}, "max_long_edge": 1440, "quality": 85, "output": "/tmp/out.jpg"}"#;
         let err = error_msg(process_line(line, 1));
-        assert!(err.contains("missing or invalid protocol_version"), "got: {err}");
+        assert!(
+            err.contains("missing or invalid protocol_version"),
+            "got: {err}"
+        );
     }
 
     #[test]

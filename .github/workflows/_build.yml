@@ -98,6 +98,8 @@ jobs:
           echo "VCPKG_INSTALLATION_ROOT=C:\vcpkg" >> $env:GITHUB_ENV
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
 
       - uses: Swatinem/rust-cache@v2.9.2
         with:
@@ -134,6 +136,18 @@ jobs:
       - name: Install patchelf (Linux)
         if: runner.os == 'Linux'
         run: pip install patchelf
+
+      # The crate's source is the same on every OS: lint it once, on Linux, with
+      # the release features so the RAW/HEIC code paths are linted too.
+      - name: Rust format check (image-proc)
+        if: runner.os == 'Linux'
+        working-directory: image-proc
+        run: cargo fmt --check
+
+      - name: Rust lint (image-proc)
+        if: runner.os == 'Linux'
+        working-directory: image-proc
+        run: cargo clippy --release --features raw,heic --all-targets -- -D warnings
 
       - name: Rust unit tests (image-proc)
         working-directory: image-proc
@@ -176,6 +190,13 @@ jobs:
 
       - name: Run unit tests
         run: python -m pytest tests/ -v
+
+      # The Python wrapper is identical on every OS: type-check it once.
+      - name: Type check
+        if: runner.os == 'Linux'
+        run: |
+          pip install "mypy>=2.3"
+          mypy src
 
       - name: Run integration tests
         run: python -m pytest tests_integration/ -v
