@@ -8,25 +8,23 @@ It has no Python package dependencies — only the standard library. Higher-leve
 
 ## Package Structure
 
-```
-ouestcharlie-imageproc/
-├── pyproject.toml                  # Build config; triggers hatch_build.py
-├── hatch_build.py                  # Hatch hook: compiles image-proc and bundles binary into wheel
-├── image-proc/                     # Rust CLI source
-│   ├── Cargo.toml
-│   ├── Cargo.lock
-│   ├── build.rs
-│   └── src/main.rs
-├── src/ouestcharlie_imageproc/
-│   ├── __init__.py                 # Exports OneTimeImageProc, PersistentImageProc, IMAGE_PROC_PROTOCOL_MAJOR_VERSION
-│   ├── image_proc.py               # Binary discovery + subprocess wrappers
-│   └── bin/                        # Bundled image-proc binary (populated at build time)
-├── tests/
-│   ├── test_image_proc.py          # Unit tests (mocked subprocess)
-│   └── sample-images/             # Test fixtures
-└── tests_integration/
-    └── test_image_proc_integration.py  # Integration tests (real binary required)
-```
+Three layers, each in its own top-level directory:
+
+- **Rust CLI** (`image-proc/`): a library crate wrapped by a thin binary. The binary
+  only runs the stdin/stdout loop; everything else is in the library so it can be
+  tested without a subprocess. The library is split by concern: protocol types,
+  one module per command, format decoders, and pixel transforms (orientation,
+  resize, fit) shared by the commands. Each optional format (`raw`, `heic`) is one
+  decoder module compiled in by its Cargo feature, with a stub returning a
+  "rebuild with --features …" error when the feature is off; adding a format means
+  adding a decoder module and its extensions to the dispatch.
+- **Python wrapper** (`src/ouestcharlie_imageproc/`): binary discovery and the
+  subprocess wrappers below. The wheel bundles the compiled binary (and, for HEIC,
+  libheif) next to it; the build hook compiles it.
+- **Tests**: Rust unit tests sit next to the code they test; Rust black-box tests
+  (protocol handling, decoding the shared sample images) use the library's public
+  API. Python tests are split into mocked unit tests and integration tests that
+  spawn the real binary.
 
 ## Protocol — Persistent Newline-Delimited JSON
 
@@ -114,7 +112,7 @@ Triggered by presence of `"photo"` object. Used by `preview_builder.generate_pre
 |--------|--------------|-----------|:-----:|:-----:|:-------:|
 | JPEG, PNG, WebP, TIFF | *(default)* | None (pure Rust) | ✅ | ✅ | ✅ |
 | RAW (CR2, NEF, ARW, DNG, RAF, ORF, RW2, PEF) | `raw` | None (pure Rust) | ✅ | ✅ | ✅ |
-| HEIC/HEIF | `heic` | `libheif ≥ 1.18` — build-time only, bundled into the wheel at runtime | ✅ | ✅ | ⚠️ (vcpkg build, see below) |
+| HEIC/HEIF | `heic` | `libheif ≥ 1.18` — build-time only, bundled into the wheel at runtime | ✅ | ✅ | ✅ (vcpkg build, see below) |
 
 RAW and HEIC are compile-time features; the binary returns a clear error if a format
 is not compiled in. Both are Cargo-level opt-in (`cargo build --release` alone
@@ -126,7 +124,7 @@ system `libheif` install, unlike a from-source build:
 IMAGE_PROC_FEATURE_RAW=1 IMAGE_PROC_FEATURE_HEIC=1 hatch build
 ```
 
-### RAW decoding (since 3.0.0, OEC-69a)
+### RAW decoding (since 3.0.0)
 
 RAW files are decoded with `rawler` (the dnglab library, pinned `=0.7.2`). Both
 commands pass the size they need to the decoder: `tile_size` for `avif_grid`,
@@ -159,15 +157,15 @@ Embedded JPEG sizes measured on raw.pixls.us samples:
 Known gap: some phone DNGs are not recognised by rawler 0.7.2 (for example the
 Galaxy S10 sample on raw.pixls.us: "No decoder found"); they fail with an error.
 
-Tests: Rust unit tests on `tests/sample-images/004.dng` (Sigma fp, CC0, raw.pixls.us);
-`tests_integration/test_raw_samples.py` downloads one sample per extension when
-`IMAGE_PROC_RAW_SAMPLES=1` is set.
+Tests: the black-box Rust tests decode a small CC0 DNG from raw.pixls.us kept in the
+sample images. A heavier integration test downloads one real camera file per RAW
+extension (pinned SHA-256, cached); it is opt-in with `IMAGE_PROC_RAW_SAMPLES=1`
+because the set is about 180 MB.
 
-⚠️ **Windows HEIC caveat**: `libheif` isn't available via `choco`, so CI bootstraps
-`libheif` via `vcpkg` (see `.github/workflows/_build.yml`) — this pulls in
-`libde265`/`x265`/`aom` as transitive deps and is slower/less proven than the
-Homebrew/apt paths. If it proves too unreliable in practice, the fallback is dropping
-`IMAGE_PROC_FEATURE_HEIC` from the Windows CI leg only, as a follow-up.
+**Windows HEIC build**: `libheif` has no `choco` package, so CI builds it from source
+with `vcpkg`, together with its codecs (`libde265`, `x265`, `aom`). It is reliable but
+adds 11–12 minutes to each Windows build; caching the vcpkg tree would remove most of
+that.
 
 ## Build
 

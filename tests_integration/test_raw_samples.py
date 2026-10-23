@@ -1,4 +1,4 @@
-"""RAW decoding against real camera files from raw.pixls.us (OEC-69a).
+"""RAW decoding against real camera files from raw.pixls.us.
 
 One CC0 sample per supported RAW extension, downloaded on first run and checked
 against a pinned SHA-256. The files are 5–25 MB each (~180 MB in total), so the

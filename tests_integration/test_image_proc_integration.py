@@ -88,7 +88,7 @@ def _heic_supported() -> bool:
 
 # CI builds with IMAGE_PROC_FEATURE_HEIC=1 and re-exports it to the test step:
 # there a binary without HEIC is a packaging bug, so run the HEIC tests (and let
-# them fail) instead of skipping them (OEC-61).
+# them fail) instead of skipping them.
 requires_heic = pytest.mark.skipif(
     not os.environ.get("IMAGE_PROC_FEATURE_HEIC") and not _heic_supported(),
     reason="image-proc binary built without --features heic",

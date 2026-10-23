@@ -4,6 +4,10 @@ version = "3.0.0"
 edition = "2021"
 description = "Image processing coprocessor for OuEstCharlie: AVIF grid assembly and JPEG preview generation."
 
+[lib]
+name = "image_proc"
+path = "src/lib.rs"
+
 [[bin]]
 name = "image-proc"
 path = "src/main.rs"

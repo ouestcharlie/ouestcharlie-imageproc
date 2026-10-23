@@ -99,7 +99,7 @@ def test_installed_wheel_tag_is_python_independent() -> None:
     The wheel holds a standalone binary and a pure-Python wrapper, so it must
     install on any Python version. A CPython-specific tag makes pip/uv fall back
     to the sdist on every other version, and that local build silently lacks
-    HEIC/RAW (OEC-61). Skipped when the package is not installed from a wheel.
+    HEIC/RAW. Skipped when the package is not installed from a wheel.
     """
     try:
         wheel_meta = metadata.distribution("ouestcharlie-imageproc").read_text("WHEEL")
