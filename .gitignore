@@ -9,6 +9,9 @@ __pycache__/
 # Distribution / packaging
 .Python
 bin/*
+# image-proc binary and bundled libraries, written by hatch_build.py
+src/ouestcharlie_imageproc/bin/*
+!src/ouestcharlie_imageproc/bin/.gitkeep
 build/
 develop-eggs/
 dist/
