@@ -6,10 +6,19 @@ use std::io::{self, BufRead, Write};
 use image_proc::process_line;
 
 fn main() {
-    // Support `--version` for version negotiation with the Python toolkit.
-    if std::env::args().nth(1).as_deref() == Some("--version") {
-        println!("image-proc {}", env!("CARGO_PKG_VERSION"));
-        return;
+    match std::env::args().nth(1).as_deref() {
+        // Version negotiation with the Python toolkit.
+        Some("--version") => {
+            println!("image-proc {}", env!("CARGO_PKG_VERSION"));
+            return;
+        }
+        // Extensions this build decodes, as a JSON array (depends on features).
+        Some("--formats") => {
+            let exts = image_proc::decode::supported_extensions();
+            println!("{}", serde_json::to_string(&exts).unwrap());
+            return;
+        }
+        _ => {}
     }
 
     let stdin = io::stdin();

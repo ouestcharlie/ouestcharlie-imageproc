@@ -2,17 +2,21 @@
 
 use image::GenericImageView;
 
-use crate::decode::decode_photo;
+use crate::decode::decode_oriented;
 use crate::protocol::{JpegPreviewInput, JpegPreviewOutput};
-use crate::transform::{apply_orientation, resize_long_edge};
+use crate::transform::resize_long_edge;
 
 pub fn run_jpeg_preview(
     input: JpegPreviewInput,
 ) -> Result<JpegPreviewOutput, Box<dyn std::error::Error>> {
     let photo = &input.photo;
-    let img = decode_photo(&photo.path, &photo.ext, input.max_long_edge)
-        .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
-    let img = apply_orientation(img, photo.orientation);
+    let img = decode_oriented(
+        &photo.path,
+        &photo.ext,
+        photo.orientation,
+        input.max_long_edge,
+    )
+    .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
     let img = resize_long_edge(img, input.max_long_edge);
     let (width, height) = img.dimensions();
 

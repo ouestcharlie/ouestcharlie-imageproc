@@ -1,10 +1,14 @@
-//! HEIC/HEIF decoding through libheif (`heic` feature).
+//! HEIF-container decoding through libheif (`heic` feature): HEIC (HEVC) and
+//! AVIF (AV1). AVIF needs libheif built with an AV1 decoder (aom or dav1d).
 
 use std::path::Path;
 
 use image::{DynamicImage, RgbImage};
 
-pub fn decode_heic(path: &Path) -> Result<DynamicImage, String> {
+/// Decodes the primary image. libheif applies the file's rotation and mirror
+/// transforms, so the result is upright; higher bit depths are converted to
+/// 8-bit RGB.
+pub fn decode_heif(path: &Path) -> Result<DynamicImage, String> {
     use libheif_rs::{ColorSpace, HeifContext, LibHeif, RgbChroma};
 
     let path_str = path

@@ -6,9 +6,9 @@ use image::RgbImage;
 use rayon::prelude::*;
 use rgb::FromSlice;
 
-use crate::decode::decode_photo;
+use crate::decode::decode_oriented;
 use crate::protocol::{AvifGridInput, AvifGridOutput};
-use crate::transform::{apply_orientation, fit_crop, fit_pad, resize_long_edge, resize_short_edge};
+use crate::transform::{fit_crop, fit_pad, resize_long_edge, resize_short_edge};
 
 const GRID_COLS: u32 = 8;
 
@@ -83,8 +83,7 @@ fn decode_and_prepare(
     tile_size: u32,
     fit: &str,
 ) -> Result<RgbImage, String> {
-    let img = decode_photo(path, ext, tile_size)?;
-    let img = apply_orientation(img, orientation);
+    let img = decode_oriented(path, ext, orientation, tile_size)?;
     Ok(if fit == "crop" {
         fit_crop(resize_short_edge(img, tile_size), tile_size)
     } else {

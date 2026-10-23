@@ -19,12 +19,14 @@ path = "src/main.rs"
 [features]
 # RAW format support (CR2, NEF, ARW, DNG, RAF, ORF, RW2, PEF) via rawler (pure Rust).
 raw = ["dep:rawler"]
-# HEIC/HEIF support via libheif-rs (requires: brew install libheif / apt install libheif-dev).
+# HEIC/HEIF and AVIF support via libheif-rs (requires: brew install libheif / apt install libheif-dev).
 heic = ["dep:libheif-rs"]
 
 [dependencies]
-# Image decoding: JPEG, PNG, WebP, TIFF (pure Rust, no system deps).
-image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "tiff"] }
+# Image decoding: JPEG, PNG, WebP, TIFF, GIF, BMP (pure Rust, no system deps).
+image = { version = "0.25.8", default-features = false, features = ["jpeg", "png", "webp", "tiff", "gif", "bmp"] }
+# JPEG XL decoding (pure Rust, no system deps, so always built in).
+jxl-oxide = { version = "0.12", features = ["image"] }
 # Pure-Rust AVIF encoder (replaces libavif — no system deps, cross-platform).
 # Uses rav1e with nasm assembly for optimised encoding (install nasm before building).
 ravif = "0.11"

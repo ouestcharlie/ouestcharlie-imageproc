@@ -80,9 +80,11 @@ jobs:
         run: choco install nasm -y --no-progress
 
       # Windows has no libheif package (choco), so vcpkg builds it from source
-      # with its codecs (libde265, x265, aom). This takes 11-12 min per run;
-      # caching the vcpkg tree (actions/cache, keyed on the libheif port
-      # version) would remove most of it.
+      # with its codecs: libde265 and x265 (default features) for HEIC, plus
+      # dav1d to decode AVIF, since vcpkg's libheif has no AV1 decoder by
+      # default (Homebrew and the Linux source build use aom). This takes
+      # 11-12 min per run; caching the vcpkg tree (actions/cache, keyed on the
+      # libheif port version) would remove most of it.
       # The triplet must be x64-windows-static-md: vcpkg-rs (libheif-sys' build
       # script) defaults to that triplet on MSVC, so the dynamic x64-windows
       # triplet is reported as "not installed". static-md also avoids bundling
@@ -93,7 +95,7 @@ jobs:
         run: |
           git clone https://github.com/microsoft/vcpkg C:\vcpkg
           C:\vcpkg\bootstrap-vcpkg.bat
-          C:\vcpkg\vcpkg.exe install libheif:x64-windows-static-md
+          C:\vcpkg\vcpkg.exe install "libheif[dav1d]:x64-windows-static-md"
           echo "VCPKG_ROOT=C:\vcpkg" >> $env:GITHUB_ENV
           echo "VCPKG_INSTALLATION_ROOT=C:\vcpkg" >> $env:GITHUB_ENV
 

@@ -24,6 +24,7 @@ from ouestcharlie_imageproc.image_proc import (
     OneTimeImageProc,
     PersistentImageProc,
     _find_image_proc_binary,
+    supported_extensions,
 )
 
 # ---------------------------------------------------------------------------
@@ -187,6 +188,61 @@ async def test_one_time_heic_preview_returns_dimensions(tmp_path: pathlib.Path) 
     )
     assert result == {"width": 64, "height": 48}
     assert output.exists()
+
+
+async def _preview(path: pathlib.Path, tmp_path: pathlib.Path) -> dict[str, int]:
+    return await OneTimeImageProc().request(
+        {
+            "photo": {
+                "path": str(path),
+                "ext": path.suffix,
+                "orientation": None,
+                "content_hash": path.name,
+            },
+            "max_long_edge": 800,
+            "quality": 85,
+            "output": str(tmp_path / "preview.jpg"),
+        }
+    )
+
+
+# 64x48 gradients from tests/sample-images/make_format_fixtures.py.
+@requires_binary
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "name",
+    [
+        "tiff_rgb16.tif",
+        "tiff_cmyk.tif",
+        "tiff_multipage.tif",
+        "webp_lossless.webp",
+        "gif_animated.gif",
+        "bmp_rgb.bmp",
+        "jxl_8bit.jxl",
+        "jxl_16bit.jxl",
+    ],
+)
+async def test_one_time_format_preview(tmp_path: pathlib.Path, name: str) -> None:
+    """Built-in formats (TIFF, WebP, GIF, BMP, JPEG XL) decode in every build."""
+    assert await _preview(SAMPLE_DIR / name, tmp_path) == {"width": 64, "height": 48}
+
+
+@requires_heic
+@pytest.mark.asyncio
+@pytest.mark.parametrize("name", ["avif_8bit.avif", "avif_10bit.avif"])
+async def test_one_time_avif_preview(tmp_path: pathlib.Path, name: str) -> None:
+    """AVIF decodes through libheif: needs an AV1 decoder in the libheif build."""
+    assert await _preview(SAMPLE_DIR / name, tmp_path) == {"width": 64, "height": 48}
+
+
+@requires_binary
+def test_supported_extensions_match_build() -> None:
+    """--formats lists the built-in formats, and HEIF/RAW only when compiled in."""
+    supported_extensions.cache_clear()
+    exts = supported_extensions()
+    assert {".jpg", ".png", ".tif", ".webp", ".gif", ".bmp", ".jxl"} <= exts
+    assert (".avif" in exts) == _heic_supported()
+    assert (".dng" in exts) == _raw_supported()
 
 
 @requires_raw

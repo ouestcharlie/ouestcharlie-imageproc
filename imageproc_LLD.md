@@ -110,12 +110,30 @@ Triggered by presence of `"photo"` object. Used by `preview_builder.generate_pre
 
 | Format | Cargo feature | System dependency | Linux | macOS | Windows |
 |--------|--------------|-----------|:-----:|:-----:|:-------:|
-| JPEG, PNG, WebP, TIFF | *(default)* | None (pure Rust) | ✅ | ✅ | ✅ |
-| RAW (CR2, NEF, ARW, DNG, RAF, ORF, RW2, PEF) | `raw` | None (pure Rust) | ✅ | ✅ | ✅ |
-| HEIC/HEIF | `heic` | `libheif ≥ 1.18` — build-time only, bundled into the wheel at runtime | ✅ | ✅ | ✅ (vcpkg build, see below) |
+| JPEG, PNG, WebP, TIFF, GIF, BMP | *(default)* | None (pure Rust) | ✅ | ✅ | ✅ |
+| JPEG XL | *(default)* | None (pure Rust, jxl-oxide) | ✅ | ✅ | ✅ |
+| RAW (CR2, CR3, NEF, ARW, DNG, RAF, ORF, RW2, PEF) | `raw` | None (pure Rust) | ✅ | ✅ | ✅ |
+| HEIC/HEIF (`.heic`, `.heif`, `.hif`), AVIF | `heic` | `libheif ≥ 1.18` with an HEVC decoder and an AV1 decoder (aom or dav1d) — build-time only, bundled into the wheel at runtime | ✅ | ✅ | ✅ (vcpkg build, see below) |
+
+The decoder is chosen from the file extension; `image-proc --formats` prints the
+extensions the build decodes (a JSON array, depending on the compiled features), and
+the Python wrapper exposes it as `supported_extensions()`. For the `image`-crate
+formats the content decides, so a mislabelled file still decodes. Multi-page TIFF
+and animated WebP/GIF give their first image; 16-bit and CMYK TIFF are
+converted to 8-bit RGB.
+
+**Orientation.** HEIF-family (HEIC, AVIF) and JPEG XL decoders already apply the
+file's own rotation, so image-proc ignores the request's `orientation` for these
+extensions: applying it again would rotate twice. This matches the HLD "upright
+convention", where such photos are stored with orientation 1. For every other
+format the request's EXIF `orientation` is applied.
+
+**Known gaps:** 32-bit float TIFF (not supported by the `image` crate); ICC profiles are ignored, so wide-gamut files look slightly
+desaturated in thumbnails and previews.
 
 RAW and HEIC are compile-time features; the binary returns a clear error if a format
-is not compiled in. Both are Cargo-level opt-in (`cargo build --release` alone
+is not compiled in. JPEG XL is always built in: it is pure Rust with no system
+dependency, so an opt-in feature would add CI wiring for nothing. Both are Cargo-level opt-in (`cargo build --release` alone
 excludes both), but **published wheels enable both by default** — CI sets both env
 vars and bundles `libheif`'s shared library into the wheel, so end users need no
 system `libheif` install, unlike a from-source build:

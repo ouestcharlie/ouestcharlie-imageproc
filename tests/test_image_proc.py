@@ -243,3 +243,18 @@ async def test_persistent_image_proc_restarts_after_crash() -> None:
     assert result == {"width": 800, "height": 600}
     assert call_count == 1
     await proc_wrapper.close()
+
+
+def test_supported_extensions_parses_formats_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    """supported_extensions() runs `image-proc --formats` and returns a frozenset."""
+    from ouestcharlie_imageproc import image_proc
+
+    image_proc.supported_extensions.cache_clear()
+    monkeypatch.setenv("IMAGE_PROC_BINARY", "/fake/image-proc")
+    completed = MagicMock(stdout='[".jpg", ".jxl", ".avif"]\n')
+    with patch("ouestcharlie_imageproc.image_proc.subprocess.run", return_value=completed) as run:
+        exts = image_proc.supported_extensions()
+    image_proc.supported_extensions.cache_clear()
+
+    assert exts == frozenset({".jpg", ".jxl", ".avif"})
+    assert run.call_args.args[0] == ["/fake/image-proc", "--formats"]
