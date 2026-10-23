@@ -201,7 +201,8 @@ jobs:
       - name: Run integration tests
         run: python -m pytest tests_integration/ -v
         env:
-          # The wheel was built with HEIC: HEIC tests must run, not skip.
+          # The wheel was built with RAW and HEIC: their tests must run, not skip.
+          IMAGE_PROC_FEATURE_RAW: "1"
           IMAGE_PROC_FEATURE_HEIC: "1"
 
       - name: Repair wheel (Linux — retag linux_x86_64 → manylinux, bundle libheif)

@@ -61,7 +61,7 @@ Triggered by presence of `"photos"` array. Used by `thumbnail_builder.generate_p
 **Request:**
 ```json
 {
-  "protocol_version": 2,
+  "protocol_version": 3,
   "photos": [
     { "path": "/tmp/staged.jpg", "ext": ".jpg", "orientation": 6, "content_hash": "Kf3QzA2_nBcR8xYvLm1P9w" }
   ],
@@ -95,7 +95,7 @@ Triggered by presence of `"photo"` object. Used by `preview_builder.generate_pre
 **Request:**
 ```json
 {
-  "protocol_version": 2,
+  "protocol_version": 3,
   "photo": { "path": "/tmp/staged.cr2", "ext": ".cr2", "orientation": 1, "content_hash": "Kf3QzA2_nBcR8xYvLm1P9w" },
   "max_long_edge": 1440,
   "quality": 85,
@@ -125,6 +125,43 @@ system `libheif` install, unlike a from-source build:
 ```bash
 IMAGE_PROC_FEATURE_RAW=1 IMAGE_PROC_FEATURE_HEIC=1 hatch build
 ```
+
+### RAW decoding (since 3.0.0, OEC-69a)
+
+RAW files are decoded with `rawler` (the dnglab library, pinned `=0.7.2`). Both
+commands pass the size they need to the decoder: `tile_size` for `avif_grid`,
+`max_long_edge` for `jpeg_preview`.
+
+1. **Embedded JPEG first.** If the full-size JPEG the camera stored in the file has a
+   long edge of at least the requested size, use it. Fast (under 0.15 s), and colours
+   match the camera's own rendering.
+2. **Develop otherwise.** No embedded JPEG (ORF, most phone DNGs) or one too small
+   (PEF: 720 px) → demosaic with rawler's default pipeline, then `auto_expose`: a
+   Reinhard exposure to a mid-grey key, gain capped at +2 EV, with highlight
+   roll-off so input white stays white. Without it, developed images are 1–2 stops
+   darker than the camera JPEG. 0.3–1 s per file.
+
+Neither path rotates the image: the EXIF `orientation` sent in the request applies,
+as for other formats. Decoder panics are caught and returned as an error for that
+photo.
+
+Embedded JPEG sizes measured on raw.pixls.us samples:
+
+| Format | Embedded JPEG | Thumbnail (256) | Preview (1440) |
+|---|---|---|---|
+| CR2 (EOS 6D) | 5472×3648 | embedded | embedded |
+| CR3 (EOS R6) | 3408×2272 | embedded | embedded |
+| NEF (Z 6), ARW (A7 III) | ~1620×1080 | embedded | embedded |
+| RAF (X-T2), RW2 (G90) | 1920 px | embedded | embedded |
+| PEF (K-1 II) | 720×480 | embedded | developed |
+| ORF (E-M1 II), DNG (iPhone, Pixel) | none | developed | developed |
+
+Known gap: some phone DNGs are not recognised by rawler 0.7.2 (for example the
+Galaxy S10 sample on raw.pixls.us: "No decoder found"); they fail with an error.
+
+Tests: Rust unit tests on `tests/sample-images/004.dng` (Sigma fp, CC0, raw.pixls.us);
+`tests_integration/test_raw_samples.py` downloads one sample per extension when
+`IMAGE_PROC_RAW_SAMPLES=1` is set.
 
 ⚠️ **Windows HEIC caveat**: `libheif` isn't available via `choco`, so CI bootstraps
 `libheif` via `vcpkg` (see `.github/workflows/_build.yml`) — this pulls in

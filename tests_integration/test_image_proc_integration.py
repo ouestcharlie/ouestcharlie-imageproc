@@ -33,6 +33,7 @@ from ouestcharlie_imageproc.image_proc import (
 SAMPLE_DIR = pathlib.Path(__file__).parent.parent / "tests" / "sample-images"
 SAMPLE_JPEG_001 = SAMPLE_DIR / "001.jpg"
 SAMPLE_HEIC_003 = SAMPLE_DIR / "003.heic"
+SAMPLE_DNG_004 = SAMPLE_DIR / "004.dng"  # Sigma fp, 16:9, CC0 (raw.pixls.us)
 
 
 def _binary_available() -> bool:
@@ -94,6 +95,41 @@ requires_heic = pytest.mark.skipif(
 )
 
 
+def _raw_supported() -> bool:
+    """Probe whether the resolved binary was built with --features raw (see _heic_supported)."""
+    if not _binary_available():
+        return False
+
+    async def _probe() -> bool:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            try:
+                await OneTimeImageProc().request(
+                    {
+                        "photo": {
+                            "path": str(SAMPLE_DNG_004),
+                            "ext": ".dng",
+                            "orientation": None,
+                            "content_hash": "raw_probe",
+                        },
+                        "max_long_edge": 32,
+                        "quality": 50,
+                        "output": str(pathlib.Path(tmpdir) / "probe.jpg"),
+                    }
+                )
+                return True
+            except RuntimeError as e:
+                return "rebuild with --features raw" not in str(e)
+
+    return asyncio.run(_probe())
+
+
+# Same rule as HEIC: CI re-exports IMAGE_PROC_FEATURE_RAW so RAW tests run there.
+requires_raw = pytest.mark.skipif(
+    not os.environ.get("IMAGE_PROC_FEATURE_RAW") and not _raw_supported(),
+    reason="image-proc binary built without --features raw",
+)
+
+
 @pytest_asyncio.fixture
 async def persistent_proc():
     async with PersistentImageProc() as proc:
@@ -150,6 +186,28 @@ async def test_one_time_heic_preview_returns_dimensions(tmp_path: pathlib.Path) 
         }
     )
     assert result == {"width": 64, "height": 48}
+    assert output.exists()
+
+
+@requires_raw
+@pytest.mark.asyncio
+async def test_one_time_dng_preview_returns_dimensions(tmp_path: pathlib.Path) -> None:
+    """OneTimeImageProc: real DNG → image-proc decodes it at the requested size."""
+    output = tmp_path / "preview.jpg"
+    result = await OneTimeImageProc().request(
+        {
+            "photo": {
+                "path": str(SAMPLE_DNG_004),
+                "ext": ".dng",
+                "orientation": None,
+                "content_hash": "test_dng_004",
+            },
+            "max_long_edge": 800,
+            "quality": 85,
+            "output": str(output),
+        }
+    )
+    assert result == {"width": 800, "height": 450}
     assert output.exists()
 
 
