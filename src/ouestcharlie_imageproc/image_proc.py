@@ -2,6 +2,7 @@
 
 Provides:
   - ``_find_image_proc_binary()``: locates the image-proc Rust binary.
+  - ``supported_extensions()``: the photo extensions this binary decodes.
   - ``OneTimeImageProc``: spawns a fresh process per request (suitable for
     batch workloads where requests are already parallelised at a higher level).
   - ``PersistentImageProc``: keeps one image-proc process alive across requests,
@@ -15,7 +16,9 @@ import contextlib
 import json
 import logging
 import os
+import subprocess
 import sys
+from functools import cache
 from pathlib import Path
 from typing import Any
 
@@ -24,7 +27,7 @@ _log = logging.getLogger(__name__)
 # Major version of the Python↔image-proc JSON protocol.
 # Must match the major component of the Cargo.toml version in image-proc/.
 # Bump both together whenever the protocol changes in a breaking way.
-IMAGE_PROC_PROTOCOL_MAJOR_VERSION = 2
+IMAGE_PROC_PROTOCOL_MAJOR_VERSION = 3
 
 
 def _find_image_proc_binary() -> str:
@@ -48,6 +51,23 @@ def _find_image_proc_binary() -> str:
         "Build it with `cargo build --release` inside ouestcharlie-imageproc/image-proc/, "
         "or set IMAGE_PROC_BINARY=/path/to/image-proc."
     )
+
+
+@cache
+def supported_extensions() -> frozenset[str]:
+    """Return the lowercase photo extensions (with the dot) the binary decodes.
+
+    Depends on how the binary was built: RAW and HEIF/AVIF extensions are only
+    listed when their feature was compiled in. Runs ``image-proc --formats``
+    once per process.
+    """
+    out = subprocess.run(
+        [_find_image_proc_binary(), "--formats"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    return frozenset(json.loads(out))
 
 
 class OneTimeImageProc:

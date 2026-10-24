@@ -24,6 +24,7 @@ from ouestcharlie_imageproc.image_proc import (
     OneTimeImageProc,
     PersistentImageProc,
     _find_image_proc_binary,
+    supported_extensions,
 )
 
 # ---------------------------------------------------------------------------
@@ -33,6 +34,7 @@ from ouestcharlie_imageproc.image_proc import (
 SAMPLE_DIR = pathlib.Path(__file__).parent.parent / "tests" / "sample-images"
 SAMPLE_JPEG_001 = SAMPLE_DIR / "001.jpg"
 SAMPLE_HEIC_003 = SAMPLE_DIR / "003.heic"
+SAMPLE_DNG_004 = SAMPLE_DIR / "004.dng"  # Sigma fp, 16:9, CC0 (raw.pixls.us)
 
 
 def _binary_available() -> bool:
@@ -87,10 +89,45 @@ def _heic_supported() -> bool:
 
 # CI builds with IMAGE_PROC_FEATURE_HEIC=1 and re-exports it to the test step:
 # there a binary without HEIC is a packaging bug, so run the HEIC tests (and let
-# them fail) instead of skipping them (OEC-61).
+# them fail) instead of skipping them.
 requires_heic = pytest.mark.skipif(
     not os.environ.get("IMAGE_PROC_FEATURE_HEIC") and not _heic_supported(),
     reason="image-proc binary built without --features heic",
+)
+
+
+def _raw_supported() -> bool:
+    """Probe whether the resolved binary was built with --features raw (see _heic_supported)."""
+    if not _binary_available():
+        return False
+
+    async def _probe() -> bool:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            try:
+                await OneTimeImageProc().request(
+                    {
+                        "photo": {
+                            "path": str(SAMPLE_DNG_004),
+                            "ext": ".dng",
+                            "orientation": None,
+                            "content_hash": "raw_probe",
+                        },
+                        "max_long_edge": 32,
+                        "quality": 50,
+                        "output": str(pathlib.Path(tmpdir) / "probe.jpg"),
+                    }
+                )
+                return True
+            except RuntimeError as e:
+                return "rebuild with --features raw" not in str(e)
+
+    return asyncio.run(_probe())
+
+
+# Same rule as HEIC: CI re-exports IMAGE_PROC_FEATURE_RAW so RAW tests run there.
+requires_raw = pytest.mark.skipif(
+    not os.environ.get("IMAGE_PROC_FEATURE_RAW") and not _raw_supported(),
+    reason="image-proc binary built without --features raw",
 )
 
 
@@ -150,6 +187,83 @@ async def test_one_time_heic_preview_returns_dimensions(tmp_path: pathlib.Path) 
         }
     )
     assert result == {"width": 64, "height": 48}
+    assert output.exists()
+
+
+async def _preview(path: pathlib.Path, tmp_path: pathlib.Path) -> dict[str, int]:
+    return await OneTimeImageProc().request(
+        {
+            "photo": {
+                "path": str(path),
+                "ext": path.suffix,
+                "orientation": None,
+                "content_hash": path.name,
+            },
+            "max_long_edge": 800,
+            "quality": 85,
+            "output": str(tmp_path / "preview.jpg"),
+        }
+    )
+
+
+# 64x48 gradients from tests/sample-images/make_format_fixtures.py.
+@requires_binary
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "name",
+    [
+        "tiff_rgb16.tif",
+        "tiff_cmyk.tif",
+        "tiff_multipage.tif",
+        "webp_lossless.webp",
+        "gif_animated.gif",
+        "bmp_rgb.bmp",
+        "jxl_8bit.jxl",
+        "jxl_16bit.jxl",
+    ],
+)
+async def test_one_time_format_preview(tmp_path: pathlib.Path, name: str) -> None:
+    """Built-in formats (TIFF, WebP, GIF, BMP, JPEG XL) decode in every build."""
+    assert await _preview(SAMPLE_DIR / name, tmp_path) == {"width": 64, "height": 48}
+
+
+@requires_heic
+@pytest.mark.asyncio
+@pytest.mark.parametrize("name", ["avif_8bit.avif", "avif_10bit.avif"])
+async def test_one_time_avif_preview(tmp_path: pathlib.Path, name: str) -> None:
+    """AVIF decodes through libheif: needs an AV1 decoder in the libheif build."""
+    assert await _preview(SAMPLE_DIR / name, tmp_path) == {"width": 64, "height": 48}
+
+
+@requires_binary
+def test_supported_extensions_match_build() -> None:
+    """--formats lists the built-in formats, and HEIF/RAW only when compiled in."""
+    supported_extensions.cache_clear()
+    exts = supported_extensions()
+    assert {".jpg", ".png", ".tif", ".webp", ".gif", ".bmp", ".jxl"} <= exts
+    assert (".avif" in exts) == _heic_supported()
+    assert (".dng" in exts) == _raw_supported()
+
+
+@requires_raw
+@pytest.mark.asyncio
+async def test_one_time_dng_preview_returns_dimensions(tmp_path: pathlib.Path) -> None:
+    """OneTimeImageProc: real DNG → image-proc decodes it at the requested size."""
+    output = tmp_path / "preview.jpg"
+    result = await OneTimeImageProc().request(
+        {
+            "photo": {
+                "path": str(SAMPLE_DNG_004),
+                "ext": ".dng",
+                "orientation": None,
+                "content_hash": "test_dng_004",
+            },
+            "max_long_edge": 800,
+            "quality": 85,
+            "output": str(output),
+        }
+    )
+    assert result == {"width": 800, "height": 450}
     assert output.exists()
 
 

@@ -6,6 +6,7 @@ from .image_proc import (
     IMAGE_PROC_PROTOCOL_MAJOR_VERSION,
     OneTimeImageProc,
     PersistentImageProc,
+    supported_extensions,
 )
 
 __version__ = version("ouestcharlie-imageproc")
@@ -14,4 +15,5 @@ __all__ = [
     "IMAGE_PROC_PROTOCOL_MAJOR_VERSION",
     "OneTimeImageProc",
     "PersistentImageProc",
+    "supported_extensions",
 ]

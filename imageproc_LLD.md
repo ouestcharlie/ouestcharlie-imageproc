@@ -8,25 +8,23 @@ It has no Python package dependencies — only the standard library. Higher-leve
 
 ## Package Structure
 
-```
-ouestcharlie-imageproc/
-├── pyproject.toml                  # Build config; triggers hatch_build.py
-├── hatch_build.py                  # Hatch hook: compiles image-proc and bundles binary into wheel
-├── image-proc/                     # Rust CLI source
-│   ├── Cargo.toml
-│   ├── Cargo.lock
-│   ├── build.rs
-│   └── src/main.rs
-├── src/ouestcharlie_imageproc/
-│   ├── __init__.py                 # Exports OneTimeImageProc, PersistentImageProc, IMAGE_PROC_PROTOCOL_MAJOR_VERSION
-│   ├── image_proc.py               # Binary discovery + subprocess wrappers
-│   └── bin/                        # Bundled image-proc binary (populated at build time)
-├── tests/
-│   ├── test_image_proc.py          # Unit tests (mocked subprocess)
-│   └── sample-images/             # Test fixtures
-└── tests_integration/
-    └── test_image_proc_integration.py  # Integration tests (real binary required)
-```
+Three layers, each in its own top-level directory:
+
+- **Rust CLI** (`image-proc/`): a library crate wrapped by a thin binary. The binary
+  only runs the stdin/stdout loop; everything else is in the library so it can be
+  tested without a subprocess. The library is split by concern: protocol types,
+  one module per command, format decoders, and pixel transforms (orientation,
+  resize, fit) shared by the commands. Each optional format (`raw`, `heic`) is one
+  decoder module compiled in by its Cargo feature, with a stub returning a
+  "rebuild with --features …" error when the feature is off; adding a format means
+  adding a decoder module and its extensions to the dispatch.
+- **Python wrapper** (`src/ouestcharlie_imageproc/`): binary discovery and the
+  subprocess wrappers below. The wheel bundles the compiled binary (and, for HEIC,
+  libheif) next to it; the build hook compiles it.
+- **Tests**: Rust unit tests sit next to the code they test; Rust black-box tests
+  (protocol handling, decoding the shared sample images) use the library's public
+  API. Python tests are split into mocked unit tests and integration tests that
+  spawn the real binary.
 
 ## Protocol — Persistent Newline-Delimited JSON
 
@@ -61,7 +59,7 @@ Triggered by presence of `"photos"` array. Used by `thumbnail_builder.generate_p
 **Request:**
 ```json
 {
-  "protocol_version": 2,
+  "protocol_version": 3,
   "photos": [
     { "path": "/tmp/staged.jpg", "ext": ".jpg", "orientation": 6, "content_hash": "Kf3QzA2_nBcR8xYvLm1P9w" }
   ],
@@ -95,7 +93,7 @@ Triggered by presence of `"photo"` object. Used by `preview_builder.generate_pre
 **Request:**
 ```json
 {
-  "protocol_version": 2,
+  "protocol_version": 3,
   "photo": { "path": "/tmp/staged.cr2", "ext": ".cr2", "orientation": 1, "content_hash": "Kf3QzA2_nBcR8xYvLm1P9w" },
   "max_long_edge": 1440,
   "quality": 85,
@@ -112,12 +110,30 @@ Triggered by presence of `"photo"` object. Used by `preview_builder.generate_pre
 
 | Format | Cargo feature | System dependency | Linux | macOS | Windows |
 |--------|--------------|-----------|:-----:|:-----:|:-------:|
-| JPEG, PNG, WebP, TIFF | *(default)* | None (pure Rust) | ✅ | ✅ | ✅ |
-| RAW (CR2, NEF, ARW, DNG, RAF, ORF, RW2, PEF) | `raw` | None (pure Rust) | ✅ | ✅ | ✅ |
-| HEIC/HEIF | `heic` | `libheif ≥ 1.18` — build-time only, bundled into the wheel at runtime | ✅ | ✅ | ⚠️ (vcpkg build, see below) |
+| JPEG, PNG, WebP, TIFF, GIF, BMP | *(default)* | None (pure Rust) | ✅ | ✅ | ✅ |
+| JPEG XL | *(default)* | None (pure Rust, jxl-oxide) | ✅ | ✅ | ✅ |
+| RAW (see "RAW decoding" for the list) | `raw` | None (pure Rust) | ✅ | ✅ | ✅ |
+| HEIC/HEIF (`.heic`, `.heif`, `.hif`), AVIF | `heic` | `libheif ≥ 1.18` with an HEVC decoder and an AV1 decoder (aom or dav1d) — build-time only, bundled into the wheel at runtime | ✅ | ✅ | ✅ (vcpkg build, see below) |
+
+The decoder is chosen from the file extension; `image-proc --formats` prints the
+extensions the build decodes (a JSON array, depending on the compiled features), and
+the Python wrapper exposes it as `supported_extensions()`. For the `image`-crate
+formats the content decides, so a mislabelled file still decodes. Multi-page TIFF
+and animated WebP/GIF give their first image; 16-bit and CMYK TIFF are
+converted to 8-bit RGB.
+
+**Orientation.** HEIF-family (HEIC, AVIF) and JPEG XL decoders already apply the
+file's own rotation, so image-proc ignores the request's `orientation` for these
+extensions: applying it again would rotate twice. This matches the HLD "upright
+convention", where such photos are stored with orientation 1. For every other
+format the request's EXIF `orientation` is applied.
+
+**Known gaps:** 32-bit float TIFF (not supported by the `image` crate); ICC profiles are ignored, so wide-gamut files look slightly
+desaturated in thumbnails and previews.
 
 RAW and HEIC are compile-time features; the binary returns a clear error if a format
-is not compiled in. Both are Cargo-level opt-in (`cargo build --release` alone
+is not compiled in. JPEG XL is always built in: it is pure Rust with no system
+dependency, so an opt-in feature would add CI wiring for nothing. Both are Cargo-level opt-in (`cargo build --release` alone
 excludes both), but **published wheels enable both by default** — CI sets both env
 vars and bundles `libheif`'s shared library into the wheel, so end users need no
 system `libheif` install, unlike a from-source build:
@@ -126,19 +142,81 @@ system `libheif` install, unlike a from-source build:
 IMAGE_PROC_FEATURE_RAW=1 IMAGE_PROC_FEATURE_HEIC=1 hatch build
 ```
 
-⚠️ **Windows HEIC caveat**: `libheif` isn't available via `choco`, so CI bootstraps
-`libheif` via `vcpkg` (see `.github/workflows/_build.yml`) — this pulls in
-`libde265`/`x265`/`aom` as transitive deps and is slower/less proven than the
-Homebrew/apt paths. If it proves too unreliable in practice, the fallback is dropping
-`IMAGE_PROC_FEATURE_HEIC` from the Windows CI leg only, as a follow-up.
+### RAW decoding (since 3.0.0)
+
+RAW files are decoded with `rawler` (the dnglab library, pinned `=0.7.2`). Both
+commands pass the size they need to the decoder: `tile_size` for `avif_grid`,
+`max_long_edge` for `jpeg_preview`.
+
+1. **Embedded JPEG first.** If the full-size JPEG the camera stored in the file has a
+   long edge of at least the requested size, use it. Fast (under 0.15 s), and colours
+   match the camera's own rendering.
+2. **Develop otherwise.** No embedded JPEG (ORF, most phone DNGs) or one too small
+   (PEF: 720 px) → demosaic with rawler's default pipeline, then `auto_expose`: a
+   Reinhard exposure to a mid-grey key, gain capped at +2 EV, with highlight
+   roll-off so input white stays white. Without it, developed images are 1–2 stops
+   darker than the camera JPEG. 0.3–1 s per file.
+
+Neither path rotates the image: the EXIF `orientation` sent in the request applies,
+as for other formats. Decoder panics are caught and returned as an error for that
+photo.
+
+Embedded JPEG sizes measured on raw.pixls.us samples:
+
+| Format | Embedded JPEG | Thumbnail (256) | Preview (1440) |
+|---|---|---|---|
+| CR2 (EOS 6D) | 5472×3648 | embedded | embedded |
+| CR3 (EOS R6) | 3408×2272 | embedded | embedded |
+| NEF (Z 6), ARW (A7 III) | ~1620×1080 | embedded | embedded |
+| RAF (X-T2), RW2 (G90) | 1920 px | embedded | embedded |
+| NRW (Coolpix P1000) | full size | embedded | embedded |
+| RWL (Leica C, C-Lux, D-Lux 109) | 1920 px | embedded | embedded |
+| PEF (K-1 II) | 720×480 | embedded | developed |
+| FFF (H5D-40) | 1217×913 | embedded | developed |
+| SR2 (DSC-R1) | 640×424 | embedded | developed |
+| 3FR (H3D) | 320×240 | developed | developed |
+| ORF (E-M1 II), DNG (iPhone, Pixel), SRW, CRW, SRF, ERF, IIQ, MOS | none | developed | developed |
+
+Medium-format files (3FR, FFF, IIQ, MOS: 22–50 MP) take 0.7–1.6 s to develop; the
+others stay under 1 s.
+
+**Supported extensions:** CR2, CR3, CRW, NEF, NRW, ARW, SRF, SR2, DNG, RAF, ORF,
+RW2, RWL, PEF, SRW, ERF, 3FR, FFF, IIQ, MOS. Support also depends on the camera
+model: rawler keeps a per-model list, and a model it does not know fails with
+"Unknown camera" even in a supported format (seen with the Leica D-Lux 6 RWL, the
+Phase One P40+ IIQ, and the Galaxy S10 DNG). Such files get no thumbnail; a newer
+rawler release may add them.
+
+**Set aside** (not listed in `--formats`, so not decoded):
+
+| Extension | Reason |
+|---|---|
+| MRW (Minolta) | rawler knows few Minolta models: 1 of 4 samples decoded |
+| X3F (Sigma) | rawler cannot read the file layout ("Couldn't find tag Make") |
+| KDC, DCR (Kodak) | decode, but with strong colour casts (wrong camera colour data) |
+| ARI (ARRI) | cinema camera frames in a log encoding, not photos |
+| K25, DCS (Kodak), MEF (Mamiya), BAY (Casio) | no CC0 sample on raw.pixls.us to test with |
+| RAW | ambiguous: Panasonic and Contax, but also unrelated software |
+| PRO | listed by RapidRAW as Apple ProRAW, but ProRAW files are `.dng`; no sample |
+
+Tests: the black-box Rust tests decode a small CC0 DNG from raw.pixls.us kept in the
+sample images. A heavier integration test downloads one real camera file per RAW
+extension (pinned SHA-256, cached); it is opt-in with `IMAGE_PROC_RAW_SAMPLES=1`
+because the set is about 500 MB.
+
+**Windows HEIC build**: `libheif` has no `choco` package, so CI builds it from source
+with `vcpkg`, together with its codecs (`libde265` and `x265` for HEIC, `dav1d` for
+AVIF). It is reliable but
+adds 11–12 minutes to each Windows build; caching the vcpkg tree would remove most of
+that.
 
 ## Build
 
 The `hatch_build.py` hook compiles the Rust binary and bundles it into the wheel. On
-Windows, when the `heic` feature is built, it also copies `libheif`'s runtime DLLs
-(located via `VCPKG_ROOT`/`VCPKG_INSTALLATION_ROOT`) next to `image-proc.exe`, since
-Windows has no `auditwheel`/`delocate` equivalent to vendor them into the wheel
-automatically:
+Linux and macOS it also bundles `libheif` and its codecs next to the binary. On Windows
+nothing else is bundled: vcpkg's `x64-windows-static-md` triplet links `libheif` and its
+codecs into `image-proc.exe`, which only needs Windows system DLLs and the Microsoft C++
+runtime. The binary is build output and is not tracked in git:
 
 ```bash
 # Development (editable install — creates symlink, picks up subsequent cargo builds)

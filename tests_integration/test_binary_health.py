@@ -99,7 +99,7 @@ def test_installed_wheel_tag_is_python_independent() -> None:
     The wheel holds a standalone binary and a pure-Python wrapper, so it must
     install on any Python version. A CPython-specific tag makes pip/uv fall back
     to the sdist on every other version, and that local build silently lacks
-    HEIC/RAW (OEC-61). Skipped when the package is not installed from a wheel.
+    HEIC/RAW. Skipped when the package is not installed from a wheel.
     """
     try:
         wheel_meta = metadata.distribution("ouestcharlie-imageproc").read_text("WHEEL")
@@ -195,26 +195,4 @@ def test_macos_binary_is_self_contained() -> None:
     assert not offenders, (
         "binary loads native libraries by absolute path instead of from the bundle: "
         f"{offenders}\nfull otool -L:\n{otool}"
-    )
-
-
-@requires_binary
-@pytest.mark.skipif(sys.platform != "win32", reason="Windows DLL check")
-def test_windows_binary_has_bundled_dlls() -> None:
-    """On Windows, libheif's runtime DLLs sit next to image-proc.exe.
-
-    Windows resolves imported DLLs from the executable's own directory first, so
-    _copy_windows_heic_dlls bundles libheif.dll and its transitive codec DLLs
-    beside the .exe. This asserts a libheif DLL is present; the launch test
-    covers whether every import actually resolves at load time. Skipped when no
-    DLLs are bundled (e.g. a heic-less build).
-    """
-    binary = Path(_find_image_proc_binary()).resolve()
-    bin_dir = binary.parent
-    dlls = {p.name for p in bin_dir.iterdir() if p.suffix.lower() == ".dll"}
-    if not dlls:
-        pytest.skip("no DLLs bundled next to the binary (heic-less build)")
-
-    assert any("heif" in name.lower() for name in dlls), (
-        f"no libheif DLL bundled next to image-proc.exe; found: {sorted(dlls)}"
     )
