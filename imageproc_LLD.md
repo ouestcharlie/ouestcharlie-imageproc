@@ -213,10 +213,18 @@ that.
 ## Build
 
 The `hatch_build.py` hook compiles the Rust binary and bundles it into the wheel. On
-Linux and macOS it also bundles `libheif` and its codecs next to the binary. On Windows
-nothing else is bundled: vcpkg's `x64-windows-static-md` triplet links `libheif` and its
-codecs into `image-proc.exe`, which only needs Windows system DLLs and the Microsoft C++
-runtime. The binary is build output and is not tracked in git:
+Linux and macOS it also bundles `libheif` and its codecs next to the binary. On Windows,
+vcpkg's `x64-windows-static-md` triplet links `libheif` and its codecs into
+`image-proc.exe`, which then needs only Windows system DLLs and the Microsoft C++ runtime
+(`msvcp140.dll`, `vcruntime140*.dll`). The runtime is not part of Windows and Python does
+not provide it to a separate executable, so the hook copies it from Visual Studio's
+redistributable folder (found with `vswhere`) next to the exe: Microsoft's "app-local
+deployment", which Windows picks up because it searches the exe's folder first.
+`delvewheel` does not fit here: it targets extension modules loaded inside Python and
+puts DLLs in a separate `.libs` folder that a subprocess does not search. A Windows test
+reads the exe's import table and fails if any DLL outside Windows is not bundled, since
+CI runners have the C++ runtime installed and would hide a missing one. The binary is
+build output and is not tracked in git:
 
 ```bash
 # Development (editable install — creates symlink, picks up subsequent cargo builds)

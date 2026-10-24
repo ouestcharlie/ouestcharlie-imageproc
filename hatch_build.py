@@ -26,6 +26,51 @@ def _platform_tag() -> str:
     return sysconfig.get_platform().replace("-", "_").replace(".", "_")
 
 
+# Microsoft C++ runtime DLLs image-proc.exe imports (C++ code in libheif and
+# its codecs, linked with the dynamic runtime by vcpkg's static-md triplet).
+_VC_RUNTIME_DLLS = ("msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll")
+
+
+def _vc_redist_crt_dir() -> Path | None:
+    """Return Visual Studio's redistributable C++ runtime folder for x64.
+
+    Uses VCToolsRedistDir when set (Visual Studio developer prompt), otherwise
+    asks vswhere for the latest Visual Studio with the C++ tools and picks its
+    newest MSVC redist version. Environment names are upper-cased: os.environ
+    is case-insensitive on Windows.
+    """
+    roots: list[Path] = []
+    if redist := os.environ.get("VCTOOLSREDISTDIR"):
+        roots.append(Path(redist))
+    else:
+        program_files = os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)")
+        vswhere = Path(program_files) / "Microsoft Visual Studio" / "Installer" / "vswhere.exe"
+        if vswhere.exists():
+            install = subprocess.run(
+                [
+                    str(vswhere),
+                    "-latest",
+                    "-products",
+                    "*",
+                    "-requires",
+                    "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+                    "-property",
+                    "installationPath",
+                ],
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            if install:
+                msvc = Path(install) / "VC" / "Redist" / "MSVC"
+                versions = [d for d in msvc.glob("*") if d.name[:1].isdigit()]
+                versions.sort(key=lambda d: [int(x) for x in d.name.split(".") if x.isdigit()])
+                roots.extend(reversed(versions))
+    for root in roots:
+        if crt := sorted((root / "x64").glob("Microsoft.VC*.CRT")):
+            return crt[-1]
+    return None
+
+
 class CustomBuildHook(BuildHookInterface):
     def initialize(self, version: str, build_data: dict) -> None:  # type: ignore[override]
         if self.target_name == "sdist":
@@ -71,6 +116,8 @@ class CustomBuildHook(BuildHookInterface):
                 self._bundle_linux_libs(dst, bin_dir)
             if sys.platform == "darwin" and "heic" in features:
                 self._bundle_macos_libs(dst, bin_dir)
+            if sys.platform == "win32":
+                self._bundle_windows_runtime(bin_dir)
 
         # Platform-specific, but not tied to a CPython version: the wheel holds a
         # standalone binary and a pure-Python wrapper, no extension module.
@@ -194,3 +241,28 @@ class CustomBuildHook(BuildHookInterface):
                     check=True,
                 )
             subprocess.run(["codesign", "-f", "-s", "-", str(target)], check=True)
+
+    def _bundle_windows_runtime(self, bin_dir: Path) -> None:
+        """Copy the Microsoft C++ runtime DLLs next to image-proc.exe.
+
+        Python ships vcruntime140*.dll next to python.exe only, and msvcp140.dll
+        not at all; a machine without the Visual C++ Redistributable could not
+        start image-proc.exe. Windows looks in the executable's own folder
+        first, so copying the redistributable DLLs there ("app-local
+        deployment", allowed by the Visual Studio redistribution terms) makes
+        the binary start anywhere.
+        """
+        crt = _vc_redist_crt_dir()
+        if crt is None:
+            print(
+                "warning: Visual Studio C++ redistributable folder not found; "
+                "image-proc.exe will need the Visual C++ Redistributable installed"
+            )
+            return
+        for name in _VC_RUNTIME_DLLS:
+            # File names in the redist folder may differ in case.
+            match = next((p for p in crt.iterdir() if p.name.lower() == name), None)
+            if match is None:
+                raise FileNotFoundError(f"{name} not found in {crt}")
+            shutil.copy2(match, bin_dir / name)
+            print(f"bundled {match} -> {bin_dir / name}")

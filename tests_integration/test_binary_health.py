@@ -18,6 +18,8 @@ message instead of leaving it to be discovered by a downstream consumer.
 from __future__ import annotations
 
 import os
+import re
+import struct
 import subprocess
 import sys
 from importlib import metadata
@@ -196,3 +198,72 @@ def test_macos_binary_is_self_contained() -> None:
         "binary loads native libraries by absolute path instead of from the bundle: "
         f"{offenders}\nfull otool -L:\n{otool}"
     )
+
+
+def _pe_imports(path: Path) -> list[str]:
+    """Return the DLL names a PE32+ (64-bit Windows) executable imports.
+
+    Reads the import directory (normal and delay-load) from the PE header with
+    the standard library only, so the check runs without extra dependencies.
+    """
+    data = path.read_bytes()
+    pe = struct.unpack_from("<I", data, 0x3C)[0]
+    sections, opt_size = struct.unpack_from("<HxxxxxxxxxxxxH", data, pe + 6)
+    opt = pe + 24
+    if struct.unpack_from("<H", data, opt)[0] != 0x20B:
+        raise ValueError(f"{path} is not a PE32+ executable")
+    data_dirs = opt + 112
+    table = [struct.unpack_from("<8sIIII", data, opt + opt_size + i * 40) for i in range(sections)]
+
+    def offset(rva: int) -> int:
+        for _name, vsize, vaddr, rsize, raddr in table:
+            if vaddr <= rva < vaddr + max(vsize, rsize):
+                return rva - vaddr + raddr
+        raise ValueError(f"RVA {rva:#x} outside any section")
+
+    names = []
+    # (data directory index, descriptor size, offset of the name RVA)
+    for index, size, name_at in ((1, 20, 12), (13, 32, 4)):
+        rva = struct.unpack_from("<I", data, data_dirs + index * 8)[0]
+        if not rva:
+            continue
+        desc = offset(rva)
+        while name_rva := struct.unpack_from("<I", data, desc + name_at)[0]:
+            start = offset(name_rva)
+            names.append(data[start : data.index(b"\0", start)].decode())
+            desc += size
+    return names
+
+
+# Microsoft C++ runtime DLLs: often present in System32 (installed by the Visual
+# C++ Redistributable, as on CI runners) but not part of Windows, so they must
+# ship with the binary.
+_VC_REDIST = re.compile(r"(vcruntime\d.*|msvcp[\d_].*|concrt\d.*|vcomp\d*.*)\.dll")
+
+
+@requires_binary
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows dependency check")
+def test_windows_binary_bundles_its_dlls() -> None:
+    """On Windows, every DLL image-proc.exe imports is either part of Windows or bundled.
+
+    CI runners have the Visual C++ Redistributable installed, so a missing
+    msvcp140.dll would not show up as a launch failure there. This reads the
+    exe's import table instead and requires the C++ runtime DLLs, and any DLL
+    not found in System32, to sit next to the exe. Skipped for a dev build
+    selected with IMAGE_PROC_BINARY, which is not bundled.
+    """
+    if os.environ.get("IMAGE_PROC_BINARY"):
+        pytest.skip("IMAGE_PROC_BINARY points at a dev build (not bundled)")
+    binary = Path(_find_image_proc_binary()).resolve()
+    bundled = {p.name.lower() for p in binary.parent.iterdir()}
+    system32 = Path(os.environ.get("SYSTEMROOT", r"C:\Windows")) / "System32"
+
+    missing = []
+    for dll in _pe_imports(binary):
+        name = dll.lower()
+        if name.startswith(("api-ms-win-", "ext-ms-win-")):
+            continue  # Windows API sets, resolved by the loader itself
+        part_of_windows = (system32 / dll).exists() and not _VC_REDIST.fullmatch(name)
+        if not part_of_windows and name not in bundled:
+            missing.append(dll)
+    assert not missing, f"DLLs image-proc.exe needs but the wheel does not bundle: {missing}"
