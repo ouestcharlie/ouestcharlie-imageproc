@@ -1,7 +1,7 @@
 """RAW decoding against real camera files from raw.pixls.us.
 
 One CC0 sample per supported RAW extension, downloaded on first run and checked
-against a pinned SHA-256. The files are 5–25 MB each (~180 MB in total), so the
+against a pinned SHA-256. The files are 2–70 MB each (~500 MB in total), so the
 test is opt-in: set IMAGE_PROC_RAW_SAMPLES=1 to run it. Files are cached in
 IMAGE_PROC_RAW_SAMPLES_DIR (default: ~/.cache/ouestcharlie/raw-samples).
 
@@ -11,6 +11,8 @@ decode path runs depends on the embedded JPEG, measured with rawler 0.7.2:
 - embedded JPEG >= 1440 px: CR2, CR3, NEF, ARW, RAF, RW2 (both sizes from the JPEG)
 - embedded JPEG of 720 px: PEF (thumbnail from the JPEG, preview developed)
 - no embedded JPEG: ORF, phone DNGs (both sizes developed)
+- medium format and older makers mostly have no usable embedded JPEG and are
+  developed at both sizes; NRW embeds a full-size JPEG
 """
 
 from __future__ import annotations
@@ -88,6 +90,73 @@ SAMPLES = [
         "3502/nice/Google - Pixel 4 XL - 16bit (4:3).dng",
         "0c03a6c93b4b8593cd0e4426166e6389710007238b82eb23861ef191322f0c54",
         4 / 3,
+    ),
+    # Formats added after the first set; MOS decodes portrait (stored rotated).
+    (
+        "nikon_coolpix_p1000.nrw",
+        "3381/nice/Nikon - COOLPIX P1000 - 12bit 12bit uncompressed (4:3).NRW",
+        "1d9470ee083f914e51aa0be782161b432f27f87dbef551a59ec435f5dbc289dd",
+        4 / 3,
+    ),
+    (
+        "samsung_nx500.srw",
+        "3668/nice/Samsung - NX500 - 12bit 12bit normal compression (3:2).SRW",
+        "156e43118811bcecb6fcc600b5f41ee1773c4f00b6a5b2dd72e177e35f6596ab",
+        3 / 2,
+    ),
+    (
+        "leica_c_typ112.rwl",
+        "3017/nice/Leica - C (Typ 112) - 4:3.RWL",
+        "081a6cf55204297f213e50b3398ff43e902dd684154ea79d1efea6503538176a",
+        4 / 3,
+    ),
+    (
+        "phaseone_iq180.iiq",
+        "6394/nice/Phase One - IQ180 - IIQ L (4:3).IIQ",
+        "cd852a703d076cf4d6744bff04409392aac273539595728b6e39ce964d0b32dd",
+        4 / 3,
+    ),
+    (
+        "hasselblad_h3d.3fr",
+        "2851/nice/Hasselblad - H3D - 16bit (4:3).3FR",
+        "34fdb93cb215e4f419ae0f7252c57b881fa381003124b4f9c143d27741f211b3",
+        4 / 3,
+    ),
+    (
+        "hasselblad_h5d40.fff",
+        "1640/nice/Hasselblad - H5D-40 - 16bit (4:3).fff",
+        "209d464e13702de5f4fdb830ac26ac140c98a8d0dc3e81c5ba61d93677330832",
+        4 / 3,
+    ),
+    (
+        "canon_eosd30.crw",
+        "1307/nice/Canon - EOS D30 - RAW (3:2).CRW",
+        "4ee482f2b6f9f1a8d370703ea04e9f2abaa49356973a7f56b229af93a78e8a2e",
+        3 / 2,
+    ),
+    (
+        "sony_dscf828.srf",
+        "1351/nice/Sony - DSC-F828 - 4:3.SRF",
+        "07739f94bcab0c7e198d418ac65172d0dce04bb84a7683ecffd0bfe4b32f6d79",
+        4 / 3,
+    ),
+    (
+        "sony_dscr1.sr2",
+        "3221/nice/Sony - DSC-R1 - 14bit 14bit uncompressed (3:2).SR2",
+        "921c5f2513dd1671a9089e73fc778fc3573bc4cb70a3a555d0414661d0e62274",
+        3 / 2,
+    ),
+    (
+        "epson_rd1.erf",
+        "2680/nice/Epson - R-D1 - 12bit (3:2).ERF",
+        "09d8e533d93116294a9f3e161ed868e929454c7b946e083b644bd6bb75bcb5e4",
+        3 / 2,
+    ),
+    (
+        "leaf_aptus22.mos",
+        "3196/nice/Leaf - Aptus 22 - 16bit (4:3).mos",
+        "8a1a101cb3940b0648af54a721d92e6fb8612dd29a0909036ea2753196a00ec2",
+        3 / 4,
     ),
 ]
 

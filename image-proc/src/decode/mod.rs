@@ -30,9 +30,15 @@ const STANDARD_EXTENSIONS: &[&str] = &[
 const JXL_EXTENSIONS: &[&str] = &[".jxl"];
 /// Decoded by libheif (`heic` feature): the HEIF container, with HEVC or AV1.
 const HEIF_EXTENSIONS: &[&str] = &[".heic", ".heif", ".hif", ".avif"];
-/// Decoded by rawler (`raw` feature).
+/// Decoded by rawler (`raw` feature). Formats rawler 0.7.2 cannot decode
+/// reliably are left out on purpose: see "RAW decoding" in the LLD.
+#[rustfmt::skip]
 const RAW_EXTENSIONS: &[&str] = &[
-    ".cr2", ".cr3", ".nef", ".arw", ".dng", ".raf", ".orf", ".rw2", ".pef",
+    // Current camera makers
+    ".cr2", ".cr3", ".crw", ".nef", ".nrw", ".arw", ".srf", ".sr2", ".dng", ".raf", ".orf",
+    ".rw2", ".rwl", ".pef", ".srw", ".erf",
+    // Medium format
+    ".3fr", ".fff", ".iiq", ".mos",
 ];
 
 /// Lowercase extensions (with the dot) this build can decode.

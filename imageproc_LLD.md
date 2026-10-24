@@ -112,7 +112,7 @@ Triggered by presence of `"photo"` object. Used by `preview_builder.generate_pre
 |--------|--------------|-----------|:-----:|:-----:|:-------:|
 | JPEG, PNG, WebP, TIFF, GIF, BMP | *(default)* | None (pure Rust) | ✅ | ✅ | ✅ |
 | JPEG XL | *(default)* | None (pure Rust, jxl-oxide) | ✅ | ✅ | ✅ |
-| RAW (CR2, CR3, NEF, ARW, DNG, RAF, ORF, RW2, PEF) | `raw` | None (pure Rust) | ✅ | ✅ | ✅ |
+| RAW (see "RAW decoding" for the list) | `raw` | None (pure Rust) | ✅ | ✅ | ✅ |
 | HEIC/HEIF (`.heic`, `.heif`, `.hif`), AVIF | `heic` | `libheif ≥ 1.18` with an HEVC decoder and an AV1 decoder (aom or dav1d) — build-time only, bundled into the wheel at runtime | ✅ | ✅ | ✅ (vcpkg build, see below) |
 
 The decoder is chosen from the file extension; `image-proc --formats` prints the
@@ -169,19 +169,44 @@ Embedded JPEG sizes measured on raw.pixls.us samples:
 | CR3 (EOS R6) | 3408×2272 | embedded | embedded |
 | NEF (Z 6), ARW (A7 III) | ~1620×1080 | embedded | embedded |
 | RAF (X-T2), RW2 (G90) | 1920 px | embedded | embedded |
+| NRW (Coolpix P1000) | full size | embedded | embedded |
+| RWL (Leica C, C-Lux, D-Lux 109) | 1920 px | embedded | embedded |
 | PEF (K-1 II) | 720×480 | embedded | developed |
-| ORF (E-M1 II), DNG (iPhone, Pixel) | none | developed | developed |
+| FFF (H5D-40) | 1217×913 | embedded | developed |
+| SR2 (DSC-R1) | 640×424 | embedded | developed |
+| 3FR (H3D) | 320×240 | developed | developed |
+| ORF (E-M1 II), DNG (iPhone, Pixel), SRW, CRW, SRF, ERF, IIQ, MOS | none | developed | developed |
 
-Known gap: some phone DNGs are not recognised by rawler 0.7.2 (for example the
-Galaxy S10 sample on raw.pixls.us: "No decoder found"); they fail with an error.
+Medium-format files (3FR, FFF, IIQ, MOS: 22–50 MP) take 0.7–1.6 s to develop; the
+others stay under 1 s.
+
+**Supported extensions:** CR2, CR3, CRW, NEF, NRW, ARW, SRF, SR2, DNG, RAF, ORF,
+RW2, RWL, PEF, SRW, ERF, 3FR, FFF, IIQ, MOS. Support also depends on the camera
+model: rawler keeps a per-model list, and a model it does not know fails with
+"Unknown camera" even in a supported format (seen with the Leica D-Lux 6 RWL, the
+Phase One P40+ IIQ, and the Galaxy S10 DNG). Such files get no thumbnail; a newer
+rawler release may add them.
+
+**Set aside** (not listed in `--formats`, so not decoded):
+
+| Extension | Reason |
+|---|---|
+| MRW (Minolta) | rawler knows few Minolta models: 1 of 4 samples decoded |
+| X3F (Sigma) | rawler cannot read the file layout ("Couldn't find tag Make") |
+| KDC, DCR (Kodak) | decode, but with strong colour casts (wrong camera colour data) |
+| ARI (ARRI) | cinema camera frames in a log encoding, not photos |
+| K25, DCS (Kodak), MEF (Mamiya), BAY (Casio) | no CC0 sample on raw.pixls.us to test with |
+| RAW | ambiguous: Panasonic and Contax, but also unrelated software |
+| PRO | listed by RapidRAW as Apple ProRAW, but ProRAW files are `.dng`; no sample |
 
 Tests: the black-box Rust tests decode a small CC0 DNG from raw.pixls.us kept in the
 sample images. A heavier integration test downloads one real camera file per RAW
 extension (pinned SHA-256, cached); it is opt-in with `IMAGE_PROC_RAW_SAMPLES=1`
-because the set is about 180 MB.
+because the set is about 500 MB.
 
 **Windows HEIC build**: `libheif` has no `choco` package, so CI builds it from source
-with `vcpkg`, together with its codecs (`libde265`, `x265`, `aom`). It is reliable but
+with `vcpkg`, together with its codecs (`libde265` and `x265` for HEIC, `dav1d` for
+AVIF). It is reliable but
 adds 11–12 minutes to each Windows build; caching the vcpkg tree would remove most of
 that.
 

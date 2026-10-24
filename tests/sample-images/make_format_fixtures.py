@@ -55,9 +55,7 @@ def main() -> None:
 
     # WebP variants
     rgb8().save(OUT / "webp_lossless.webp", lossless=True)
-    rgb8().save(
-        OUT / "webp_animated.webp", save_all=True, append_images=[small.resize((W, H))]
-    )
+    rgb8().save(OUT / "webp_animated.webp", save_all=True, append_images=[small.resize((W, H))])
 
     # GIF (palette, animated) and BMP
     rgb8().save(OUT / "gif_animated.gif", save_all=True, append_images=[small.resize((W, H))])
@@ -71,8 +69,17 @@ def main() -> None:
             png16 = pathlib.Path(tmp) / "in16.png"
             imagecodecs.imwrite(png16, rgb16, codec="png")
             subprocess.run(
-                [heif_enc, "--avif", "-b", "10", "-q", "80", "-o", str(OUT / "avif_10bit.avif"),
-                 str(png16)],
+                [
+                    heif_enc,
+                    "--avif",
+                    "-b",
+                    "10",
+                    "-q",
+                    "80",
+                    "-o",
+                    str(OUT / "avif_10bit.avif"),
+                    str(png16),
+                ],
                 check=True,
                 capture_output=True,
             )
