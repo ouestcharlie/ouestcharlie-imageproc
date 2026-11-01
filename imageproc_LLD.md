@@ -193,7 +193,7 @@ rawler release may add them.
 |---|---|
 | MRW (Minolta) | rawler knows few Minolta models: 1 of 4 samples decoded |
 | X3F (Sigma) | rawler cannot read the file layout ("Couldn't find tag Make") |
-| KDC, DCR (Kodak) | decode, but with strong colour casts (wrong camera colour data) |
+| KDC, DCR (Kodak) | decode, but with strong color casts (wrong camera color data) |
 | ARI (ARRI) | cinema camera frames in a log encoding, not photos |
 | K25, DCS (Kodak), MEF (Mamiya), BAY (Casio) | no CC0 sample on raw.pixls.us to test with |
 | RAW | ambiguous: Panasonic and Contax, but also unrelated software |
@@ -248,7 +248,7 @@ Python version.
 
 | OS | Wheel platform tag | Floor set by |
 |---|---|---|
-| macOS arm64 | `macosx_14_0_arm64` | `macos-14` CI runner (Homebrew libheif and codecs are built for it) and `MACOSX_DEPLOYMENT_TARGET=14.0` (Rust binary) |
+| macOS arm64 | `macosx_15_0_arm64` | `macos-15` CI runner (Homebrew libheif and codecs are built for it) and `MACOSX_DEPLOYMENT_TARGET=15.0` (Rust binary) |
 | Linux x86_64 | `manylinux_2_34_x86_64` | `ubuntu-22.04` runner, retagged by `auditwheel repair` |
 | Windows x86_64 | `win_amd64` | — |
 
