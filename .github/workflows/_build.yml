@@ -12,7 +12,7 @@ env:
   # Oldest macOS the wheel supports. Must match the macOS runner below: the
   # Homebrew libheif (and codecs) bundled by delocate are built for the
   # runner's OS, so they set the floor. Cargo reads this for the Rust binary.
-  MACOS_MIN_VERSION: "14.0"
+  MACOS_MIN_VERSION: "15.0"
 
 jobs:
   build-wheel:
@@ -22,7 +22,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14          # macOS arm64 — pinned, sets the wheel's minimum macOS
+          - os: macos-15          # macOS arm64 — pinned, sets the wheel's minimum macOS
           - os: ubuntu-22.04      # Linux x86_64
           - os: windows-latest    # Windows x86_64
 
